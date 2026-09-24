@@ -26,8 +26,9 @@ jobs:
       - name: Install Required Libraries
         run: |
           arduino-cli lib install "ArduinoJson"
-          arduino-cli lib install "AsyncTCP"
-          arduino-cli lib install "ESP Async WebServer"
+          mkdir -p ~/Arduino/libraries
+          git clone https://github.com/mathieucarbou/AsyncTCP.git ~/Arduino/libraries/AsyncTCP
+          git clone https://github.com/mathieucarbou/ESPAsyncWebServer.git ~/Arduino/libraries/ESPAsyncWebServer
 
       - name: Compile Sketch
         run: |
