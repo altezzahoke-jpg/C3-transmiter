@@ -35,11 +35,11 @@ const uint16_t defaultDwellPerRPM[NUM_RPM_POINTS] = {
 // --- STRUKTUR DATA TUNING ---
 struct CustomTuning {
   int16_t mapData[NUM_RPM_POINTS][NUM_TPS_POINTS];
-  uint16_t dwellData[NUM_RPM_POINTS]; // Dwell per step RPM
+  uint16_t dwellData[NUM_RPM_POINTS]; 
   uint16_t rpmLimit;
 };
 
-CustomTuning customMapSlots[5]; // 5 Slot Map Custom
+CustomTuning customMapSlots[5];
 
 // --- STRUKTUR DATA TELEMETRI & KOMANDO ---
 struct __attribute__((packed)) TelemetryData {
@@ -61,13 +61,12 @@ struct __attribute__((packed)) CommandData {
   uint16_t crc16;
 };
 
-// PAKET KOMANDO DENGAN DWELL PER STEP RPM
 struct __attribute__((packed)) CommandPacketToS3 {
   uint16_t header;       
   uint8_t  cmdType;      
   uint8_t  slotOrMode;   
   int16_t  mapData[NUM_RPM_POINTS][NUM_TPS_POINTS]; 
-  uint16_t dwellData[NUM_RPM_POINTS]; // 15 Array Dwell per Step
+  uint16_t dwellData[NUM_RPM_POINTS]; 
   uint16_t rpmLimit;     
   uint16_t crc16;      
 };
@@ -164,11 +163,11 @@ void saveMapToNVS() {
   preferences.end();
 }
 
-// --- TAMPILAN WEB UI RACING THEME ---
+// --- TAMPILAN WEB UI RACING THEME INTERAKTIF ---
 const char* htmlUI = R"rawliteral(
 <!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ECU RACING TUNER PRO</title>
+<title>TEAM PATAS KUDUS - ECU TUNER</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@600;700&display=swap');
   
@@ -187,7 +186,7 @@ const char* htmlUI = R"rawliteral(
     padding: 0;
   }
 
-  /* TEXT BERJALAN (MARQUEE BANNER) */
+  /* MARQUEE TEXT BERJALAN */
   .marquee-box {
     background: linear-gradient(90deg, #ff0055, #00ff87, #00e5ff, #ff0055);
     background-size: 300% 300%;
@@ -209,7 +208,7 @@ const char* htmlUI = R"rawliteral(
     color: #00ff87;
     letter-spacing: 2px;
     text-transform: uppercase;
-    animation: marquee 18s linear infinite;
+    animation: marquee 16s linear infinite;
   }
 
   @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
@@ -221,11 +220,11 @@ const char* htmlUI = R"rawliteral(
   }
   .header h1 {
     font-family: 'Orbitron', sans-serif;
-    font-size: 26px;
+    font-size: 24px;
     margin: 0;
     color: #fff;
     text-shadow: 0 0 10px #00ff87, 0 0 20px #00ff87;
-    letter-spacing: 3px;
+    letter-spacing: 2px;
   }
 
   .container { max-width: 650px; margin: 0 auto; padding: 10px; }
@@ -235,8 +234,8 @@ const char* htmlUI = R"rawliteral(
     background: rgba(20, 20, 25, 0.85);
     border: 1px solid rgba(0, 255, 136, 0.3);
     border-radius: 10px;
-    padding: 15px;
-    margin-bottom: 15px;
+    padding: 12px;
+    margin-bottom: 12px;
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(8px);
   }
@@ -262,14 +261,13 @@ const char* htmlUI = R"rawliteral(
     background: #050508;
     color: #00ff87;
     border: 1px solid #222;
-    padding: 10px;
+    padding: 8px;
     font-family: 'Orbitron', sans-serif;
-    font-size: 14px;
+    font-size: 13px;
     border-radius: 6px;
     box-shadow: inset 0 0 5px rgba(0, 255, 136, 0.2);
     outline: none;
   }
-  select:focus, input.cfg:focus { border-color: #00ff87; box-shadow: 0 0 10px rgba(0, 255, 136, 0.5); }
 
   /* TAB SWITCHER */
   .tab-buttons {
@@ -284,7 +282,7 @@ const char* htmlUI = R"rawliteral(
     color: #aaa;
     padding: 10px;
     font-family: 'Orbitron', sans-serif;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     border-radius: 6px;
     cursor: pointer;
@@ -297,27 +295,45 @@ const char* htmlUI = R"rawliteral(
     box-shadow: 0 0 12px rgba(0, 255, 136, 0.6);
   }
 
+  /* CANVAS CHART */
+  .chart-card {
+    background: #050508;
+    border: 1px solid #222;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 12px;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+  }
+  .chart-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    color: #00e5ff;
+    text-align: center;
+    margin-bottom: 6px;
+    letter-spacing: 1px;
+  }
+
   /* TABLES */
   .table-responsive { overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #222; }
   table { width: 100%; border-collapse: collapse; background: #08080c; }
-  th, td { border: 1px solid #1a1a24; padding: 6px 3px; text-align: center; font-size: 13px; }
-  th { background: #12121a; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-size: 11px; }
+  th, td { border: 1px solid #1a1a24; padding: 5px 2px; text-align: center; font-size: 12px; }
+  th { background: #12121a; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-size: 10px; }
 
   input.cell {
-    width: 44px;
+    width: 42px;
     background: #000;
     color: #00ff87;
     border: 1px solid #222;
     text-align: center;
-    padding: 6px 2px;
+    padding: 5px 1px;
     font-family: 'Rajdhani', sans-serif;
     font-weight: 700;
-    font-size: 15px;
+    font-size: 14px;
     border-radius: 4px;
   }
   input.cell:focus { outline: none; border-color: #ff0055; color: #fff; box-shadow: 0 0 8px #ff0055; }
   
-  input.dwell-cell { color: #00e5ff; width: 80px; }
+  input.dwell-cell { color: #00e5ff; width: 75px; }
   input.dwell-cell:focus { border-color: #00e5ff; color: #fff; box-shadow: 0 0 8px #00e5ff; }
 
   /* ACTION BUTTON */
@@ -328,7 +344,7 @@ const char* htmlUI = R"rawliteral(
     font-weight: 900;
     border: none;
     padding: 14px 20px;
-    font-size: 15px;
+    font-size: 14px;
     border-radius: 8px;
     cursor: pointer;
     width: 100%;
@@ -342,12 +358,12 @@ const char* htmlUI = R"rawliteral(
 
 <div class="marquee-box">
   <div class="marquee-inner">
-    <div class="marquee-text">🏁 ECU TUNER PRO — TCI IGNITION MANAGEMENT MATRIX — CUSTOM MAP & DWELL TIME CONTROL — 🏁</div>
+    <div class="marquee-text">🏁 TEAM PATAS KUDUS SATRIA CLUB — TCI IGNITION MAP — CUSTOM TUNING SYSTEM — 🏁</div>
   </div>
 </div>
 
 <div class="header">
-  <h1>ECU TUNER PRO</h1>
+  <h1>TEAM PATAS KUDUS</h1>
 </div>
 
 <div class="container">
@@ -375,6 +391,12 @@ const char* htmlUI = R"rawliteral(
     <button class="tab-btn" id="btnTabDwell" onclick="switchTab('dwell')">DWELL PER STEP (RPM)</button>
   </div>
 
+  <!-- GRAFIK CURVE INTERAKTIF -->
+  <div class="chart-card">
+    <div class="chart-title" id="chartTitle">GRAFIK KURVA PENGAPIAN (DEGREE VS RPM)</div>
+    <canvas id="tuningChart" style="width:100%; height:180px;"></canvas>
+  </div>
+
   <!-- TAB 1: TABEL DERAJAT -->
   <div id="tabDegree" class="table-responsive">
     <table>
@@ -386,7 +408,7 @@ const char* htmlUI = R"rawliteral(
   <!-- TAB 2: TABEL DWELL PER STEP -->
   <div id="tabDwell" class="table-responsive" style="display:none;">
     <table>
-      <thead><tr><th>STEP RPM</th><th>DWELL TIME (&mu;s)</th><th>DESKRIPSI</th></tr></thead>
+      <thead><tr><th>STEP RPM</th><th>DWELL TIME (&mu;s)</th><th>KETERANGAN</th></tr></thead>
       <tbody id="dwellBody"></tbody>
     </table>
   </div>
@@ -395,7 +417,7 @@ const char* htmlUI = R"rawliteral(
 </div>
 
 <script>
-const rpmLabels = ["1000","2000","3000","4000","5000","6000","7000","8000","9000","10000","11000","12000","13000","14000","15000"];
+const rpmLabels = ["1k","2k","3k","4k","5k","6k","7k","8k","9k","10k","11k","12k","13k","14k","15k"];
 
 function switchTab(tab) {
   if (tab === 'degree') {
@@ -403,11 +425,94 @@ function switchTab(tab) {
     document.getElementById('tabDwell').style.display = 'none';
     document.getElementById('btnTabDegree').classList.add('active');
     document.getElementById('btnTabDwell').classList.remove('active');
+    document.getElementById('chartTitle').innerText = "GRAFIK KURVA PENGAPIAN (DEGREE VS RPM)";
   } else {
     document.getElementById('tabDegree').style.display = 'none';
     document.getElementById('tabDwell').style.display = 'block';
     document.getElementById('btnTabDegree').classList.remove('active');
     document.getElementById('btnTabDwell').classList.add('active');
+    document.getElementById('chartTitle').innerText = "GRAFIK KURVA DWELL TIME (DWELL VS RPM)";
+  }
+  drawChart();
+}
+
+function drawChart() {
+  const canvas = document.getElementById('tuningChart');
+  const ctx = canvas.getContext('2d');
+  
+  canvas.width = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
+  
+  const w = canvas.width;
+  const h = canvas.height;
+  const padL = 30, padR = 15, padT = 15, padB = 25;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  
+  ctx.clearRect(0, 0, w, h);
+  
+  ctx.strokeStyle = '#1a1a24';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#666';
+  ctx.font = '9px Orbitron, sans-serif';
+  
+  let currentTabIsDegree = document.getElementById('tabDegree').style.display !== 'none';
+  
+  if (currentTabIsDegree) {
+    let minY = 0, maxY = 450; 
+    
+    for(let v = 0; v <= 400; v += 100) {
+      let y = padT + plotH - ((v - minY) / (maxY - minY)) * plotH;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+      ctx.fillText((v/10) + '°', 5, y + 3);
+    }
+    
+    for(let r = 0; r < 15; r += 2) {
+      let x = padL + (r / 14) * plotW;
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+      ctx.fillText(rpmLabels[r], x - 8, h - 5);
+    }
+    
+    const colors = ['#00e5ff', '#00ff87', '#ffea00', '#ff9100', '#ff0055'];
+    for(let t = 0; t < 5; t++) {
+      ctx.strokeStyle = colors[t];
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for(let r = 0; r < 15; r++) {
+        let el = document.getElementById(`c_${r}_${t}`);
+        let val = el ? (parseInt(el.value) || 0) : 100;
+        let x = padL + (r / 14) * plotW;
+        let y = padT + plotH - ((val - minY) / (maxY - minY)) * plotH;
+        if(r === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  } else {
+    let minY = 1000, maxY = 5000;
+    
+    for(let v = 1000; v <= 5000; v += 1000) {
+      let y = padT + plotH - ((v - minY) / (maxY - minY)) * plotH;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+      ctx.fillText((v/1000) + 'k', 5, y + 3);
+    }
+    
+    for(let r = 0; r < 15; r += 2) {
+      let x = padL + (r / 14) * plotW;
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+      ctx.fillText(rpmLabels[r], x - 8, h - 5);
+    }
+    
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for(let r = 0; r < 15; r++) {
+      let el = document.getElementById(`d_${r}`);
+      let val = el ? (parseInt(el.value) || 3200) : 3200;
+      let x = padL + (r / 14) * plotW;
+      let y = padT + plotH - ((val - minY) / (maxY - minY)) * plotH;
+      if(r === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
   }
 }
 
@@ -416,7 +521,6 @@ function loadMap() {
   fetch('/getMap?slot=' + slot).then(r => r.json()).then(data => {
     document.getElementById('rpmLimit').value = data.rpmLimit;
     
-    // Render Tabel Derajat
     let tbodyMap = document.getElementById('mapBody');
     tbodyMap.innerHTML = '';
     for(let r = 0; r < 15; r++) {
@@ -428,13 +532,12 @@ function loadMap() {
       for(let t = 0; t < 5; t++) {
         let td = document.createElement('td');
         let val = (data.map && data.map[r]) ? data.map[r][t] : 100;
-        td.innerHTML = `<input type="number" class="cell" id="c_${r}_${t}" value="${val}">`;
+        td.innerHTML = `<input type="number" class="cell" id="c_${r}_${t}" value="${val}" oninput="drawChart()">`;
         tr.appendChild(td);
       }
       tbodyMap.appendChild(tr);
     }
 
-    // Render Tabel Dwell Per Step
     let tbodyDwell = document.getElementById('dwellBody');
     tbodyDwell.innerHTML = '';
     for(let r = 0; r < 15; r++) {
@@ -445,18 +548,20 @@ function loadMap() {
       
       let tdDwell = document.createElement('td');
       let dVal = (data.dwell && data.dwell[r]) ? data.dwell[r] : 3200;
-      tdDwell.innerHTML = `<input type="number" class="cell dwell-cell" id="d_${r}" value="${dVal}" step="50">`;
+      tdDwell.innerHTML = `<input type="number" class="cell dwell-cell" id="d_${r}" value="${dVal}" step="50" oninput="drawChart()">`;
       
       let tdDesc = document.createElement('td');
       tdDesc.style.color = '#888';
       tdDesc.style.fontSize = '11px';
-      tdDesc.innerText = r < 4 ? 'Low RPM Charge' : (r < 10 ? 'Mid RPM Charge' : 'High RPM Fast Charge');
+      tdDesc.innerText = r < 4 ? 'Low RPM' : (r < 10 ? 'Mid RPM' : 'High RPM');
 
       tr.appendChild(tdRpm);
       tr.appendChild(tdDwell);
       tr.appendChild(tdDesc);
       tbodyDwell.appendChild(tr);
     }
+    
+    drawChart();
   });
 }
 
@@ -469,7 +574,6 @@ function saveAndSend() {
     dwell: []
   };
 
-  // Ambil data derajat
   for(let r = 0; r < 15; r++) {
     let row = [];
     for(let t = 0; t < 5; t++) {
@@ -478,7 +582,6 @@ function saveAndSend() {
     payload.map.push(row);
   }
 
-  // Ambil data dwell per step
   for(let r = 0; r < 15; r++) {
     payload.dwell.push(parseInt(document.getElementById(`d_${r}`).value) || 3200);
   }
@@ -487,9 +590,11 @@ function saveAndSend() {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload)
-  }).then(r => r.text()).then(msg => alert('Slot Custom ' + (slot+1) + ' Berhasil Disimpan & Diteruskan ke ECU!'));
+  }).then(r => r.text()).then(msg => alert('Map Custom ' + (slot+1) + ' Berhasil Disimpan & Dikirim ke ECU!'));
 }
+
 window.onload = loadMap;
+window.onresize = drawChart;
 </script>
 </body></html>
 )rawliteral";
@@ -527,7 +632,6 @@ void setupWebServer() {
     
     customMapSlots[slot].rpmLimit = obj["rpmLimit"].as<uint16_t>();
     
-    // Parse Degree Map
     JsonArray arrMap = obj["map"].as<JsonArray>(); int r = 0;
     for(JsonVariant row : arrMap) {
       if(r >= NUM_RPM_POINTS) break; int t = 0;
@@ -537,7 +641,6 @@ void setupWebServer() {
       } r++;
     }
 
-    // Parse Dwell per Step
     JsonArray arrDwell = obj["dwell"].as<JsonArray>(); int d = 0;
     for(JsonVariant val : arrDwell) {
       if(d >= NUM_RPM_POINTS) break;
