@@ -19,7 +19,7 @@ uint8_t displayMacAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 Preferences preferences;
 AsyncWebServer server(80);
 
-// --- DATA BAWAAN (MAP DAILY S3) ---
+// --- DATA BAWAAN DEFAULT ---
 const int16_t mapDaily3DBase[NUM_RPM_POINTS][NUM_TPS_POINTS] = {
   {100, 100, 100, 100, 100}, {100, 100, 100, 100, 100}, {140, 150, 160, 170, 180},
   {180, 200, 220, 230, 240}, {220, 240, 260, 270, 280}, {250, 270, 290, 300, 310},
@@ -28,15 +28,18 @@ const int16_t mapDaily3DBase[NUM_RPM_POINTS][NUM_TPS_POINTS] = {
   {260, 280, 300, 300, 300}, {250, 250, 280, 280, 280}, {250, 250, 250, 250, 250}
 };
 
+const uint16_t defaultDwellPerRPM[NUM_RPM_POINTS] = {
+  3500, 3500, 3400, 3300, 3200, 3100, 3000, 2900, 2800, 2700, 2600, 2500, 2400, 2300, 2200
+};
+
 // --- STRUKTUR DATA TUNING ---
 struct CustomTuning {
   int16_t mapData[NUM_RPM_POINTS][NUM_TPS_POINTS];
+  uint16_t dwellData[NUM_RPM_POINTS]; // Dwell per step RPM
   uint16_t rpmLimit;
-  uint16_t dwellUs;
 };
 
-CustomTuning customMapSlots[5]; // 5 Slot Map
-uint8_t activeUIMapSlot = 0;
+CustomTuning customMapSlots[5]; // 5 Slot Map Custom
 
 // --- STRUKTUR DATA TELEMETRI & KOMANDO ---
 struct __attribute__((packed)) TelemetryData {
@@ -58,14 +61,14 @@ struct __attribute__((packed)) CommandData {
   uint16_t crc16;
 };
 
-// UPDATE: Ditambahkan rpmLimit dan dwellUs
+// PAKET KOMANDO DENGAN DWELL PER STEP RPM
 struct __attribute__((packed)) CommandPacketToS3 {
   uint16_t header;       
   uint8_t  cmdType;      
   uint8_t  slotOrMode;   
   int16_t  mapData[NUM_RPM_POINTS][NUM_TPS_POINTS]; 
+  uint16_t dwellData[NUM_RPM_POINTS]; // 15 Array Dwell per Step
   uint16_t rpmLimit;     
-  uint16_t dwellUs;
   uint16_t crc16;      
 };
 
@@ -91,12 +94,12 @@ void sendCommandToS3(uint8_t cmdType, uint8_t slot) {
   
   if (cmdType == 0x02 && slot < 5) {
     memcpy(cmd.mapData, customMapSlots[slot].mapData, sizeof(cmd.mapData));
+    memcpy(cmd.dwellData, customMapSlots[slot].dwellData, sizeof(cmd.dwellData));
     cmd.rpmLimit = customMapSlots[slot].rpmLimit;
-    cmd.dwellUs = customMapSlots[slot].dwellUs;
   } else {
     memset(cmd.mapData, 0, sizeof(cmd.mapData)); 
+    memcpy(cmd.dwellData, defaultDwellPerRPM, sizeof(cmd.dwellData));
     cmd.rpmLimit = 12500;
-    cmd.dwellUs = 3200;
   }
   
   cmd.crc16 = calculateCRC16((uint8_t*)&cmd, sizeof(CommandPacketToS3) - sizeof(uint16_t));
@@ -148,7 +151,7 @@ void loadMapFromNVS() {
   } else {
     for (int s = 0; s < 5; s++) {
       customMapSlots[s].rpmLimit = 12500;
-      customMapSlots[s].dwellUs = 3200;
+      memcpy(customMapSlots[s].dwellData, defaultDwellPerRPM, sizeof(defaultDwellPerRPM));
       memcpy(customMapSlots[s].mapData, mapDaily3DBase, sizeof(mapDaily3DBase));
     }
   }
@@ -161,66 +164,265 @@ void saveMapToNVS() {
   preferences.end();
 }
 
-// --- TAMPILAN WEB UI ---
+// --- TAMPILAN WEB UI RACING THEME ---
 const char* htmlUI = R"rawliteral(
 <!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ECU Tuner Pro</title>
+<title>ECU RACING TUNER PRO</title>
 <style>
-  body{font-family:Arial,sans-serif;background:#121212;color:#fff;text-align:center;margin:10px;padding:0;}
-  h2{color:#00e676;margin-bottom:10px;}
-  .container{max-width:600px;margin:0 auto;}
-  .controls{background:#1e1e1e;padding:15px;border-radius:8px;margin-bottom:15px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;border:1px solid #333;}
-  select, input[type=number].cfg{background:#000;color:#00e676;border:1px solid #444;padding:8px;font-size:14px;border-radius:4px;}
-  label{font-size:14px;font-weight:bold;margin-right:10px;}
-  .cfg-group{margin:5px 0;}
-  table{width:100%;border-collapse:collapse;margin-bottom:15px;background:#1e1e1e;}
-  th,td{border:1px solid #333;padding:4px;text-align:center;font-size:12px;}
-  th{background:#292929;color:#00e676;}
-  input.cell{width:42px;background:#000;color:#00e676;border:1px solid #444;text-align:center;padding:5px;font-size:13px;border-radius:4px;}
-  input.cell:focus{outline:none;border-color:#00e676;}
-  button{background:#00e676;color:#000;font-weight:bold;border:none;padding:12px 20px;font-size:14px;border-radius:6px;cursor:pointer;margin:5px;width:100%;max-width:250px;}
-  button:hover{opacity:0.9;}
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@600;700&display=swap');
+  
+  body {
+    font-family: 'Rajdhani', sans-serif;
+    background: #0a0a0c;
+    background-image: 
+      radial-gradient(circle at 50% 0%, rgba(0, 255, 136, 0.15), transparent 70%),
+      linear-gradient(45deg, #111 25%, transparent 25%), 
+      linear-gradient(-45deg, #111 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #111 75%),
+      linear-gradient(-45deg, transparent 75%, #111 75%);
+    background-size: 100% 100%, 16px 16px, 16px 16px, 16px 16px, 16px 16px;
+    color: #fff;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* TEXT BERJALAN (MARQUEE BANNER) */
+  .marquee-box {
+    background: linear-gradient(90deg, #ff0055, #00ff87, #00e5ff, #ff0055);
+    background-size: 300% 300%;
+    animation: gradientMove 6s ease infinite;
+    padding: 3px 0;
+    box-shadow: 0 0 15px rgba(0, 255, 136, 0.5);
+  }
+  .marquee-inner {
+    background: #000;
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 6px 0;
+  }
+  .marquee-text {
+    display: inline-block;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: #00ff87;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    animation: marquee 18s linear infinite;
+  }
+
+  @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
+  @keyframes gradientMove { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+
+  .header {
+    text-align: center;
+    padding: 15px 10px 5px 10px;
+  }
+  .header h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 26px;
+    margin: 0;
+    color: #fff;
+    text-shadow: 0 0 10px #00ff87, 0 0 20px #00ff87;
+    letter-spacing: 3px;
+  }
+
+  .container { max-width: 650px; margin: 0 auto; padding: 10px; }
+
+  /* CARD CONTROLS */
+  .card {
+    background: rgba(20, 20, 25, 0.85);
+    border: 1px solid rgba(0, 255, 136, 0.3);
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 15px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+  }
+
+  .controls-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    color: #888;
+    display: block;
+    margin-bottom: 5px;
+    letter-spacing: 1px;
+  }
+
+  select, input[type=number].cfg {
+    width: 100%;
+    box-sizing: border-box;
+    background: #050508;
+    color: #00ff87;
+    border: 1px solid #222;
+    padding: 10px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px;
+    border-radius: 6px;
+    box-shadow: inset 0 0 5px rgba(0, 255, 136, 0.2);
+    outline: none;
+  }
+  select:focus, input.cfg:focus { border-color: #00ff87; box-shadow: 0 0 10px rgba(0, 255, 136, 0.5); }
+
+  /* TAB SWITCHER */
+  .tab-buttons {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .tab-btn {
+    flex: 1;
+    background: #111;
+    border: 1px solid #333;
+    color: #aaa;
+    padding: 10px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.3s;
+  }
+  .tab-btn.active {
+    background: linear-gradient(180deg, #00ff87, #009951);
+    color: #000;
+    border-color: #00ff87;
+    box-shadow: 0 0 12px rgba(0, 255, 136, 0.6);
+  }
+
+  /* TABLES */
+  .table-responsive { overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #222; }
+  table { width: 100%; border-collapse: collapse; background: #08080c; }
+  th, td { border: 1px solid #1a1a24; padding: 6px 3px; text-align: center; font-size: 13px; }
+  th { background: #12121a; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-size: 11px; }
+
+  input.cell {
+    width: 44px;
+    background: #000;
+    color: #00ff87;
+    border: 1px solid #222;
+    text-align: center;
+    padding: 6px 2px;
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    border-radius: 4px;
+  }
+  input.cell:focus { outline: none; border-color: #ff0055; color: #fff; box-shadow: 0 0 8px #ff0055; }
+  
+  input.dwell-cell { color: #00e5ff; width: 80px; }
+  input.dwell-cell:focus { border-color: #00e5ff; color: #fff; box-shadow: 0 0 8px #00e5ff; }
+
+  /* ACTION BUTTON */
+  .btn-save {
+    background: linear-gradient(135deg, #ff0055, #ff5500);
+    color: #fff;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    border: none;
+    padding: 14px 20px;
+    font-size: 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    width: 100%;
+    letter-spacing: 2px;
+    box-shadow: 0 0 20px rgba(255, 0, 85, 0.5);
+    transition: 0.2s;
+  }
+  .btn-save:hover { transform: scale(1.01); box-shadow: 0 0 30px rgba(255, 0, 85, 0.8); }
 </style>
 </head><body>
-<h2>ECU TUNER PRO</h2>
+
+<div class="marquee-box">
+  <div class="marquee-inner">
+    <div class="marquee-text">🏁 ECU TUNER PRO — TCI IGNITION MANAGEMENT MATRIX — CUSTOM MAP & DWELL TIME CONTROL — 🏁</div>
+  </div>
+</div>
+
+<div class="header">
+  <h1>ECU TUNER PRO</h1>
+</div>
+
 <div class="container">
-  <div class="controls">
-    <div class="cfg-group">
-      <label>SLOT MAP:</label>
-      <select id="slotSelect" onchange="loadMap()">
-        <option value="0">Custom Map 1</option><option value="1">Custom Map 2</option>
-        <option value="2">Custom Map 3</option><option value="3">Custom Map 4</option>
-        <option value="4">Custom Map 5</option>
-      </select>
+  <div class="card">
+    <div class="controls-grid">
+      <div>
+        <label>SLOT MAP CUSTOM</label>
+        <select id="slotSelect" onchange="loadMap()">
+          <option value="0">MAP CUSTOM 1</option>
+          <option value="1">MAP CUSTOM 2</option>
+          <option value="2">MAP CUSTOM 3</option>
+          <option value="3">MAP CUSTOM 4</option>
+          <option value="4">MAP CUSTOM 5</option>
+        </select>
+      </div>
+      <div>
+        <label>LIMIT RPM (HARD CUT)</label>
+        <input type="number" id="rpmLimit" class="cfg" value="12500" step="100">
+      </div>
     </div>
-    <div class="cfg-group"><label>RPM LIMIT:</label><input type="number" id="rpmLimit" class="cfg" value="12500"></div>
-    <div class="cfg-group"><label>DWELL (us):</label><input type="number" id="dwellUs" class="cfg" value="3200"></div>
   </div>
 
-  <div style="overflow-x:auto;">
+  <div class="tab-buttons">
+    <button class="tab-btn active" id="btnTabDegree" onclick="switchTab('degree')">MAP DERAJAT (3D)</button>
+    <button class="tab-btn" id="btnTabDwell" onclick="switchTab('dwell')">DWELL PER STEP (RPM)</button>
+  </div>
+
+  <!-- TAB 1: TABEL DERAJAT -->
+  <div id="tabDegree" class="table-responsive">
     <table>
       <thead><tr><th>RPM/TPS</th><th>0%</th><th>25%</th><th>50%</th><th>75%</th><th>100%</th></tr></thead>
       <tbody id="mapBody"></tbody>
     </table>
   </div>
-  
-  <button onclick="saveAndSend()">SIMPAN & KIRIM KE ECU</button>
+
+  <!-- TAB 2: TABEL DWELL PER STEP -->
+  <div id="tabDwell" class="table-responsive" style="display:none;">
+    <table>
+      <thead><tr><th>STEP RPM</th><th>DWELL TIME (&mu;s)</th><th>DESKRIPSI</th></tr></thead>
+      <tbody id="dwellBody"></tbody>
+    </table>
+  </div>
+
+  <button class="btn-save" onclick="saveAndSend()">SIMPAN & FLASH KE ECU</button>
 </div>
 
 <script>
 const rpmLabels = ["1000","2000","3000","4000","5000","6000","7000","8000","9000","10000","11000","12000","13000","14000","15000"];
 
+function switchTab(tab) {
+  if (tab === 'degree') {
+    document.getElementById('tabDegree').style.display = 'block';
+    document.getElementById('tabDwell').style.display = 'none';
+    document.getElementById('btnTabDegree').classList.add('active');
+    document.getElementById('btnTabDwell').classList.remove('active');
+  } else {
+    document.getElementById('tabDegree').style.display = 'none';
+    document.getElementById('tabDwell').style.display = 'block';
+    document.getElementById('btnTabDegree').classList.remove('active');
+    document.getElementById('btnTabDwell').classList.add('active');
+  }
+}
+
 function loadMap() {
   let slot = document.getElementById('slotSelect').value;
   fetch('/getMap?slot=' + slot).then(r => r.json()).then(data => {
     document.getElementById('rpmLimit').value = data.rpmLimit;
-    document.getElementById('dwellUs').value = data.dwellUs;
-    let tbody = document.getElementById('mapBody');
-    tbody.innerHTML = '';
+    
+    // Render Tabel Derajat
+    let tbodyMap = document.getElementById('mapBody');
+    tbodyMap.innerHTML = '';
     for(let r = 0; r < 15; r++) {
       let tr = document.createElement('tr');
       let tdRpm = document.createElement('td');
+      tdRpm.style.color = '#00e5ff';
       tdRpm.innerText = rpmLabels[r];
       tr.appendChild(tdRpm);
       for(let t = 0; t < 5; t++) {
@@ -229,7 +431,31 @@ function loadMap() {
         td.innerHTML = `<input type="number" class="cell" id="c_${r}_${t}" value="${val}">`;
         tr.appendChild(td);
       }
-      tbody.appendChild(tr);
+      tbodyMap.appendChild(tr);
+    }
+
+    // Render Tabel Dwell Per Step
+    let tbodyDwell = document.getElementById('dwellBody');
+    tbodyDwell.innerHTML = '';
+    for(let r = 0; r < 15; r++) {
+      let tr = document.createElement('tr');
+      let tdRpm = document.createElement('td');
+      tdRpm.style.color = '#00e5ff';
+      tdRpm.innerText = rpmLabels[r] + ' RPM';
+      
+      let tdDwell = document.createElement('td');
+      let dVal = (data.dwell && data.dwell[r]) ? data.dwell[r] : 3200;
+      tdDwell.innerHTML = `<input type="number" class="cell dwell-cell" id="d_${r}" value="${dVal}" step="50">`;
+      
+      let tdDesc = document.createElement('td');
+      tdDesc.style.color = '#888';
+      tdDesc.style.fontSize = '11px';
+      tdDesc.innerText = r < 4 ? 'Low RPM Charge' : (r < 10 ? 'Mid RPM Charge' : 'High RPM Fast Charge');
+
+      tr.appendChild(tdRpm);
+      tr.appendChild(tdDwell);
+      tr.appendChild(tdDesc);
+      tbodyDwell.appendChild(tr);
     }
   });
 }
@@ -239,9 +465,11 @@ function saveAndSend() {
   let payload = {
     slot: slot,
     rpmLimit: parseInt(document.getElementById('rpmLimit').value) || 12500,
-    dwell: parseInt(document.getElementById('dwellUs').value) || 3200,
-    map: []
+    map: [],
+    dwell: []
   };
+
+  // Ambil data derajat
   for(let r = 0; r < 15; r++) {
     let row = [];
     for(let t = 0; t < 5; t++) {
@@ -249,12 +477,17 @@ function saveAndSend() {
     }
     payload.map.push(row);
   }
+
+  // Ambil data dwell per step
+  for(let r = 0; r < 15; r++) {
+    payload.dwell.push(parseInt(document.getElementById(`d_${r}`).value) || 3200);
+  }
   
   fetch('/saveTuning', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload)
-  }).then(r => r.text()).then(msg => alert('Data Map ' + (slot+1) + ' Berhasil Disimpan & Dikirim!'));
+  }).then(r => r.text()).then(msg => alert('Slot Custom ' + (slot+1) + ' Berhasil Disimpan & Diteruskan ke ECU!'));
 }
 window.onload = loadMap;
 </script>
@@ -271,12 +504,18 @@ void setupWebServer() {
     
     DynamicJsonDocument doc(4096);
     doc["rpmLimit"] = customMapSlots[slot].rpmLimit;
-    doc["dwellUs"] = customMapSlots[slot].dwellUs;
-    JsonArray arr = doc.createNestedArray("map");
+    
+    JsonArray arrMap = doc.createNestedArray("map");
     for (int r = 0; r < NUM_RPM_POINTS; r++) {
-      JsonArray row = arr.createNestedArray();
+      JsonArray row = arrMap.createNestedArray();
       for (int t = 0; t < NUM_TPS_POINTS; t++) { row.add(customMapSlots[slot].mapData[r][t]); }
     }
+
+    JsonArray arrDwell = doc.createNestedArray("dwell");
+    for (int r = 0; r < NUM_RPM_POINTS; r++) {
+      arrDwell.add(customMapSlots[slot].dwellData[r]);
+    }
+
     String response; serializeJson(doc, response);
     request->send(200, "application/json", response);
   });
@@ -287,15 +526,23 @@ void setupWebServer() {
     if (slot > 4) slot = 0;
     
     customMapSlots[slot].rpmLimit = obj["rpmLimit"].as<uint16_t>();
-    customMapSlots[slot].dwellUs = obj["dwell"].as<uint16_t>();
     
-    JsonArray arr = obj["map"].as<JsonArray>(); int r = 0;
-    for(JsonVariant row : arr) {
+    // Parse Degree Map
+    JsonArray arrMap = obj["map"].as<JsonArray>(); int r = 0;
+    for(JsonVariant row : arrMap) {
       if(r >= NUM_RPM_POINTS) break; int t = 0;
       for(JsonVariant val : row.as<JsonArray>()) { 
         if(t >= NUM_TPS_POINTS) break; 
         customMapSlots[slot].mapData[r][t] = val.as<int16_t>(); t++; 
       } r++;
+    }
+
+    // Parse Dwell per Step
+    JsonArray arrDwell = obj["dwell"].as<JsonArray>(); int d = 0;
+    for(JsonVariant val : arrDwell) {
+      if(d >= NUM_RPM_POINTS) break;
+      customMapSlots[slot].dwellData[d] = val.as<uint16_t>();
+      d++;
     }
     
     saveMapToNVS(); 
