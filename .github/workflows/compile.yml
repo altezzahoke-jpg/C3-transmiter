@@ -1,0 +1,40 @@
+name: Compile ESP32-C3 Sketch
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 Core
+        run: |
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+
+      - name: Install Required Libraries
+        run: |
+          arduino-cli lib install "ArduinoJson"
+          arduino-cli lib install "AsyncTCP"
+          arduino-cli lib install "ESP Async WebServer"
+
+      - name: Compile Sketch
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:adafruit_qtpy_esp32c3 sketch_sep25f --output-dir ./build
+
+      - name: Upload Binary Artifact (.bin file)
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32c3-firmware
+          path: ./build/*.bin
