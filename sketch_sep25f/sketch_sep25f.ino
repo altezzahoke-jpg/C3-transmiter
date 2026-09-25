@@ -19,6 +19,11 @@ uint8_t displayMacAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 Preferences preferences;
 AsyncWebServer server(80);
 
+// --- VARIABEL EFISIENSI & TIMEOUT WIFI ---
+unsigned long lastActivityTime = 0;
+const unsigned long WIFI_TIMEOUT_MS = 180000; // 3 Menit (180.000 ms)
+bool isWifiActive = true;
+
 // --- DATA BAWAAN DEFAULT ---
 const int16_t mapDaily3DBase[NUM_RPM_POINTS][NUM_TPS_POINTS] = {
   {100, 100, 100, 100, 100}, {100, 100, 100, 100, 100}, {140, 150, 160, 170, 180},
@@ -38,7 +43,6 @@ struct CustomTuning {
   uint16_t dwellData[NUM_RPM_POINTS]; 
   uint16_t rpmLimit;
 };
-
 CustomTuning customMapSlots[5];
 
 // --- STRUKTUR DATA TELEMETRI & KOMANDO ---
@@ -163,7 +167,7 @@ void saveMapToNVS() {
   preferences.end();
 }
 
-// --- TAMPILAN WEB UI RACING THEME INTERAKTIF ---
+// --- TAMPILAN WEB UI RACING THEME LENGKAP ---
 const char* htmlUI = R"rawliteral(
 <!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -186,7 +190,6 @@ const char* htmlUI = R"rawliteral(
     padding: 0;
   }
 
-  /* MARQUEE TEXT BERJALAN */
   .marquee-box {
     background: linear-gradient(90deg, #ff0055, #00ff87, #00e5ff, #ff0055);
     background-size: 300% 300%;
@@ -214,143 +217,71 @@ const char* htmlUI = R"rawliteral(
   @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
   @keyframes gradientMove { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
 
-  .header {
-    text-align: center;
-    padding: 15px 10px 5px 10px;
-  }
+  .header { text-align: center; padding: 15px 10px 5px 10px; }
   .header h1 {
-    font-family: 'Orbitron', sans-serif;
-    font-size: 24px;
-    margin: 0;
-    color: #fff;
-    text-shadow: 0 0 10px #00ff87, 0 0 20px #00ff87;
-    letter-spacing: 2px;
+    font-family: 'Orbitron', sans-serif; font-size: 24px; margin: 0;
+    color: #fff; text-shadow: 0 0 10px #00ff87, 0 0 20px #00ff87; letter-spacing: 2px;
+  }
+  
+  .timeout-warning {
+    text-align: center; font-family: 'Rajdhani', sans-serif; font-size: 14px;
+    color: #ff9100; margin-bottom: 15px; font-weight: 700; letter-spacing: 1px;
   }
 
   .container { max-width: 650px; margin: 0 auto; padding: 10px; }
 
-  /* CARD CONTROLS */
   .card {
     background: rgba(20, 20, 25, 0.85);
-    border: 1px solid rgba(0, 255, 136, 0.3);
-    border-radius: 10px;
-    padding: 12px;
-    margin-bottom: 12px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 255, 136, 0.3); border-radius: 10px;
+    padding: 12px; margin-bottom: 12px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px);
   }
 
-  .controls-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-
-  label {
-    font-family: 'Orbitron', sans-serif;
-    font-size: 11px;
-    color: #888;
-    display: block;
-    margin-bottom: 5px;
-    letter-spacing: 1px;
-  }
+  .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  label { font-family: 'Orbitron', sans-serif; font-size: 11px; color: #888; display: block; margin-bottom: 5px; letter-spacing: 1px; }
 
   select, input[type=number].cfg {
-    width: 100%;
-    box-sizing: border-box;
-    background: #050508;
-    color: #00ff87;
-    border: 1px solid #222;
-    padding: 8px;
-    font-family: 'Orbitron', sans-serif;
-    font-size: 13px;
-    border-radius: 6px;
-    box-shadow: inset 0 0 5px rgba(0, 255, 136, 0.2);
-    outline: none;
+    width: 100%; box-sizing: border-box; background: #050508; color: #00ff87;
+    border: 1px solid #222; padding: 8px; font-family: 'Orbitron', sans-serif;
+    font-size: 13px; border-radius: 6px; box-shadow: inset 0 0 5px rgba(0, 255, 136, 0.2); outline: none;
   }
 
-  /* TAB SWITCHER */
-  .tab-buttons {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
+  .tab-buttons { display: flex; gap: 8px; margin-bottom: 12px; }
   .tab-btn {
-    flex: 1;
-    background: #111;
-    border: 1px solid #333;
-    color: #aaa;
-    padding: 10px;
-    font-family: 'Orbitron', sans-serif;
-    font-size: 11px;
-    font-weight: 700;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: 0.3s;
+    flex: 1; background: #111; border: 1px solid #333; color: #aaa;
+    padding: 10px; font-family: 'Orbitron', sans-serif; font-size: 11px;
+    font-weight: 700; border-radius: 6px; cursor: pointer; transition: 0.3s;
   }
   .tab-btn.active {
-    background: linear-gradient(180deg, #00ff87, #009951);
-    color: #000;
-    border-color: #00ff87;
-    box-shadow: 0 0 12px rgba(0, 255, 136, 0.6);
+    background: linear-gradient(180deg, #00ff87, #009951); color: #000;
+    border-color: #00ff87; box-shadow: 0 0 12px rgba(0, 255, 136, 0.6);
   }
 
-  /* CANVAS CHART */
   .chart-card {
-    background: #050508;
-    border: 1px solid #222;
-    border-radius: 8px;
-    padding: 10px;
-    margin-bottom: 12px;
-    box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+    background: #050508; border: 1px solid #222; border-radius: 8px;
+    padding: 10px; margin-bottom: 12px; box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
   }
-  .chart-title {
-    font-family: 'Orbitron', sans-serif;
-    font-size: 11px;
-    color: #00e5ff;
-    text-align: center;
-    margin-bottom: 6px;
-    letter-spacing: 1px;
-  }
+  .chart-title { font-family: 'Orbitron', sans-serif; font-size: 11px; color: #00e5ff; text-align: center; margin-bottom: 6px; letter-spacing: 1px; }
 
-  /* TABLES */
   .table-responsive { overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #222; }
   table { width: 100%; border-collapse: collapse; background: #08080c; }
   th, td { border: 1px solid #1a1a24; padding: 5px 2px; text-align: center; font-size: 12px; }
   th { background: #12121a; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-size: 10px; }
 
   input.cell {
-    width: 42px;
-    background: #000;
-    color: #00ff87;
-    border: 1px solid #222;
-    text-align: center;
-    padding: 5px 1px;
-    font-family: 'Rajdhani', sans-serif;
-    font-weight: 700;
-    font-size: 14px;
-    border-radius: 4px;
+    width: 42px; background: #000; color: #00ff87; border: 1px solid #222;
+    text-align: center; padding: 5px 1px; font-family: 'Rajdhani', sans-serif;
+    font-weight: 700; font-size: 14px; border-radius: 4px;
   }
   input.cell:focus { outline: none; border-color: #ff0055; color: #fff; box-shadow: 0 0 8px #ff0055; }
-  
   input.dwell-cell { color: #00e5ff; width: 75px; }
   input.dwell-cell:focus { border-color: #00e5ff; color: #fff; box-shadow: 0 0 8px #00e5ff; }
 
-  /* ACTION BUTTON */
   .btn-save {
-    background: linear-gradient(135deg, #ff0055, #ff5500);
-    color: #fff;
-    font-family: 'Orbitron', sans-serif;
-    font-weight: 900;
-    border: none;
-    padding: 14px 20px;
-    font-size: 14px;
-    border-radius: 8px;
-    cursor: pointer;
-    width: 100%;
-    letter-spacing: 2px;
-    box-shadow: 0 0 20px rgba(255, 0, 85, 0.5);
-    transition: 0.2s;
+    background: linear-gradient(135deg, #ff0055, #ff5500); color: #fff;
+    font-family: 'Orbitron', sans-serif; font-weight: 900; border: none;
+    padding: 14px 20px; font-size: 14px; border-radius: 8px; cursor: pointer;
+    width: 100%; letter-spacing: 2px; box-shadow: 0 0 20px rgba(255, 0, 85, 0.5); transition: 0.2s;
   }
   .btn-save:hover { transform: scale(1.01); box-shadow: 0 0 30px rgba(255, 0, 85, 0.8); }
 </style>
@@ -362,11 +293,11 @@ const char* htmlUI = R"rawliteral(
   </div>
 </div>
 
-<div class="header">
-  <h1>TEAM PATAS KUDUS</h1>
-</div>
+<div class="header"><h1>TEAM PATAS KUDUS</h1></div>
 
 <div class="container">
+  <div class="timeout-warning">WIFI AUTO-SLEEP AKTIF DALAM 3 MENIT</div>
+  
   <div class="card">
     <div class="controls-grid">
       <div>
@@ -391,13 +322,11 @@ const char* htmlUI = R"rawliteral(
     <button class="tab-btn" id="btnTabDwell" onclick="switchTab('dwell')">DWELL PER STEP (RPM)</button>
   </div>
 
-  <!-- GRAFIK CURVE INTERAKTIF -->
   <div class="chart-card">
     <div class="chart-title" id="chartTitle">GRAFIK KURVA PENGAPIAN (DEGREE VS RPM)</div>
     <canvas id="tuningChart" style="width:100%; height:180px;"></canvas>
   </div>
 
-  <!-- TAB 1: TABEL DERAJAT -->
   <div id="tabDegree" class="table-responsive">
     <table>
       <thead><tr><th>RPM/TPS</th><th>0%</th><th>25%</th><th>50%</th><th>75%</th><th>100%</th></tr></thead>
@@ -405,7 +334,6 @@ const char* htmlUI = R"rawliteral(
     </table>
   </div>
 
-  <!-- TAB 2: TABEL DWELL PER STEP -->
   <div id="tabDwell" class="table-responsive" style="display:none;">
     <table>
       <thead><tr><th>STEP RPM</th><th>DWELL TIME (&mu;s)</th><th>KETERANGAN</th></tr></thead>
@@ -443,41 +371,30 @@ function drawChart() {
   canvas.width = canvas.clientWidth;
   canvas.height = canvas.clientHeight;
   
-  const w = canvas.width;
-  const h = canvas.height;
+  const w = canvas.width; const h = canvas.height;
   const padL = 30, padR = 15, padT = 15, padB = 25;
-  const plotW = w - padL - padR;
-  const plotH = h - padT - padB;
+  const plotW = w - padL - padR; const plotH = h - padT - padB;
   
   ctx.clearRect(0, 0, w, h);
-  
-  ctx.strokeStyle = '#1a1a24';
-  ctx.lineWidth = 1;
-  ctx.fillStyle = '#666';
-  ctx.font = '9px Orbitron, sans-serif';
+  ctx.strokeStyle = '#1a1a24'; ctx.lineWidth = 1; ctx.fillStyle = '#666'; ctx.font = '9px Orbitron, sans-serif';
   
   let currentTabIsDegree = document.getElementById('tabDegree').style.display !== 'none';
   
   if (currentTabIsDegree) {
     let minY = 0, maxY = 450; 
-    
     for(let v = 0; v <= 400; v += 100) {
       let y = padT + plotH - ((v - minY) / (maxY - minY)) * plotH;
       ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
       ctx.fillText((v/10) + '°', 5, y + 3);
     }
-    
     for(let r = 0; r < 15; r += 2) {
       let x = padL + (r / 14) * plotW;
       ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
       ctx.fillText(rpmLabels[r], x - 8, h - 5);
     }
-    
     const colors = ['#00e5ff', '#00ff87', '#ffea00', '#ff9100', '#ff0055'];
     for(let t = 0; t < 5; t++) {
-      ctx.strokeStyle = colors[t];
-      ctx.lineWidth = 2;
-      ctx.beginPath();
+      ctx.strokeStyle = colors[t]; ctx.lineWidth = 2; ctx.beginPath();
       for(let r = 0; r < 15; r++) {
         let el = document.getElementById(`c_${r}_${t}`);
         let val = el ? (parseInt(el.value) || 0) : 100;
@@ -489,22 +406,17 @@ function drawChart() {
     }
   } else {
     let minY = 1000, maxY = 5000;
-    
     for(let v = 1000; v <= 5000; v += 1000) {
       let y = padT + plotH - ((v - minY) / (maxY - minY)) * plotH;
       ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
       ctx.fillText((v/1000) + 'k', 5, y + 3);
     }
-    
     for(let r = 0; r < 15; r += 2) {
       let x = padL + (r / 14) * plotW;
       ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
       ctx.fillText(rpmLabels[r], x - 8, h - 5);
     }
-    
-    ctx.strokeStyle = '#00e5ff';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
+    ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2.5; ctx.beginPath();
     for(let r = 0; r < 15; r++) {
       let el = document.getElementById(`d_${r}`);
       let val = el ? (parseInt(el.value) || 3200) : 3200;
@@ -521,14 +433,11 @@ function loadMap() {
   fetch('/getMap?slot=' + slot).then(r => r.json()).then(data => {
     document.getElementById('rpmLimit').value = data.rpmLimit;
     
-    let tbodyMap = document.getElementById('mapBody');
-    tbodyMap.innerHTML = '';
+    let tbodyMap = document.getElementById('mapBody'); tbodyMap.innerHTML = '';
     for(let r = 0; r < 15; r++) {
       let tr = document.createElement('tr');
       let tdRpm = document.createElement('td');
-      tdRpm.style.color = '#00e5ff';
-      tdRpm.innerText = rpmLabels[r];
-      tr.appendChild(tdRpm);
+      tdRpm.style.color = '#00e5ff'; tdRpm.innerText = rpmLabels[r]; tr.appendChild(tdRpm);
       for(let t = 0; t < 5; t++) {
         let td = document.createElement('td');
         let val = (data.map && data.map[r]) ? data.map[r][t] : 100;
@@ -538,29 +447,17 @@ function loadMap() {
       tbodyMap.appendChild(tr);
     }
 
-    let tbodyDwell = document.getElementById('dwellBody');
-    tbodyDwell.innerHTML = '';
+    let tbodyDwell = document.getElementById('dwellBody'); tbodyDwell.innerHTML = '';
     for(let r = 0; r < 15; r++) {
       let tr = document.createElement('tr');
-      let tdRpm = document.createElement('td');
-      tdRpm.style.color = '#00e5ff';
-      tdRpm.innerText = rpmLabels[r] + ' RPM';
-      
+      let tdRpm = document.createElement('td'); tdRpm.style.color = '#00e5ff'; tdRpm.innerText = rpmLabels[r] + ' RPM';
       let tdDwell = document.createElement('td');
       let dVal = (data.dwell && data.dwell[r]) ? data.dwell[r] : 3200;
       tdDwell.innerHTML = `<input type="number" class="cell dwell-cell" id="d_${r}" value="${dVal}" step="50" oninput="drawChart()">`;
-      
-      let tdDesc = document.createElement('td');
-      tdDesc.style.color = '#888';
-      tdDesc.style.fontSize = '11px';
+      let tdDesc = document.createElement('td'); tdDesc.style.color = '#888'; tdDesc.style.fontSize = '11px';
       tdDesc.innerText = r < 4 ? 'Low RPM' : (r < 10 ? 'Mid RPM' : 'High RPM');
-
-      tr.appendChild(tdRpm);
-      tr.appendChild(tdDwell);
-      tr.appendChild(tdDesc);
-      tbodyDwell.appendChild(tr);
+      tr.appendChild(tdRpm); tr.appendChild(tdDwell); tr.appendChild(tdDesc); tbodyDwell.appendChild(tr);
     }
-    
     drawChart();
   });
 }
@@ -568,43 +465,35 @@ function loadMap() {
 function saveAndSend() {
   let slot = parseInt(document.getElementById('slotSelect').value);
   let payload = {
-    slot: slot,
-    rpmLimit: parseInt(document.getElementById('rpmLimit').value) || 12500,
-    map: [],
-    dwell: []
+    slot: slot, rpmLimit: parseInt(document.getElementById('rpmLimit').value) || 12500, map: [], dwell: []
   };
 
   for(let r = 0; r < 15; r++) {
     let row = [];
-    for(let t = 0; t < 5; t++) {
-      row.push(parseInt(document.getElementById(`c_${r}_${t}`).value) || 100);
-    }
+    for(let t = 0; t < 5; t++) { row.push(parseInt(document.getElementById(`c_${r}_${t}`).value) || 100); }
     payload.map.push(row);
   }
-
-  for(let r = 0; r < 15; r++) {
-    payload.dwell.push(parseInt(document.getElementById(`d_${r}`).value) || 3200);
-  }
+  for(let r = 0; r < 15; r++) { payload.dwell.push(parseInt(document.getElementById(`d_${r}`).value) || 3200); }
   
   fetch('/saveTuning', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
   }).then(r => r.text()).then(msg => alert('Map Custom ' + (slot+1) + ' Berhasil Disimpan & Dikirim ke ECU!'));
 }
 
-window.onload = loadMap;
-window.onresize = drawChart;
+window.onload = loadMap; window.onresize = drawChart;
 </script>
 </body></html>
 )rawliteral";
 
 void setupWebServer() {
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){ request->send_P(200, "text/html", htmlUI); });
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){ 
+    lastActivityTime = millis(); // Reset Timer saat user membuka web
+    request->send_P(200, "text/html", htmlUI); 
+  });
   
   server.on("/getMap", HTTP_GET, [](AsyncWebServerRequest *request){
-    uint8_t slot = 0;
-    if (request->hasParam("slot")) { slot = request->getParam("slot")->value().toInt(); }
+    lastActivityTime = millis(); // Reset Timer saat data map dimuat
+    uint8_t slot = request->hasParam("slot") ? request->getParam("slot")->value().toInt() : 0;
     if (slot > 4) slot = 0;
     
     DynamicJsonDocument doc(4096);
@@ -613,19 +502,17 @@ void setupWebServer() {
     JsonArray arrMap = doc.createNestedArray("map");
     for (int r = 0; r < NUM_RPM_POINTS; r++) {
       JsonArray row = arrMap.createNestedArray();
-      for (int t = 0; t < NUM_TPS_POINTS; t++) { row.add(customMapSlots[slot].mapData[r][t]); }
+      for (int t = 0; t < NUM_TPS_POINTS; t++) row.add(customMapSlots[slot].mapData[r][t]);
     }
-
     JsonArray arrDwell = doc.createNestedArray("dwell");
-    for (int r = 0; r < NUM_RPM_POINTS; r++) {
-      arrDwell.add(customMapSlots[slot].dwellData[r]);
-    }
+    for (int r = 0; r < NUM_RPM_POINTS; r++) arrDwell.add(customMapSlots[slot].dwellData[r]);
 
     String response; serializeJson(doc, response);
     request->send(200, "application/json", response);
   });
 
   AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler("/saveTuning", [](AsyncWebServerRequest *request, JsonVariant &json) {
+    lastActivityTime = millis(); // Reset Timer saat save map
     JsonObject obj = json.as<JsonObject>();
     uint8_t slot = obj["slot"].as<uint8_t>();
     if (slot > 4) slot = 0;
@@ -640,7 +527,6 @@ void setupWebServer() {
         customMapSlots[slot].mapData[r][t] = val.as<int16_t>(); t++; 
       } r++;
     }
-
     JsonArray arrDwell = obj["dwell"].as<JsonArray>(); int d = 0;
     for(JsonVariant val : arrDwell) {
       if(d >= NUM_RPM_POINTS) break;
@@ -658,9 +544,16 @@ void setupWebServer() {
 }
 
 void setup() {
+  // EFISIENSI 1: Turunkan Clock CPU dari 160MHz ke 80MHz (Suhu akan turun drastis)
+  setCpuFrequencyMhz(80); 
+  
   Serial1.begin(250000, SERIAL_8N1, RX_PIN, TX_PIN);
+  
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP("ECU_SATRIA_FU", "kudus1234");
+  
+  // EFISIENSI 2: Tetap pertahankan TX Power di tingkat medium (50)
+  esp_wifi_set_max_tx_power(50); 
   
   esp_wifi_set_mac(WIFI_IF_STA, transmitterMac); 
   if (esp_now_init() == ESP_OK) {
@@ -672,9 +565,22 @@ void setup() {
 
   loadMapFromNVS();
   setupWebServer();
+  
+  lastActivityTime = millis(); // Mulai perhitungan timer saat boot
   delay(1000); sendCommandToS3(0x02, 0); 
 }
 
 void loop() {
   parseUART(); 
+  
+  // EFISIENSI 3: Auto-Kill WiFi & Web Server setelah 3 Menit idle
+  if (isWifiActive && (millis() - lastActivityTime > WIFI_TIMEOUT_MS)) {
+    server.end();                  // Matikan Web Server
+    WiFi.softAPdisconnect(true);   // Matikan jaringan WiFi Access Point
+    isWifiActive = false;          // Kunci state agar tidak dieksekusi berulang
+    // Mode STA tetap hidup di latar belakang untuk komunikasi ESP-NOW ke display
+  }
+  
+  // Memberi waktu "napas" pada OS agar suhu tetap dingin
+  delay(1); 
 }
