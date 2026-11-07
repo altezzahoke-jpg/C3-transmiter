@@ -263,7 +263,7 @@ const char* htmlUI = R"rawliteral(
   
   .timeout-warning {
     text-align: center; font-family: 'Rajdhani', sans-serif; font-size: 14px;
-    color: #ff9100; margin-bottom: 15px; font-weight: 700; letter-spacing: 1px;
+    color: #00ff87; margin-bottom: 15px; font-weight: 700; letter-spacing: 1px;
   }
 
   .container { max-width: 650px; margin: 0 auto; padding: 10px; }
@@ -351,7 +351,7 @@ const char* htmlUI = R"rawliteral(
 <div class="header"><h1>TEAM PATAS KUDUS</h1></div>
 
 <div class="container">
-  <div class="timeout-warning">WIFI AUTO-SLEEP AKTIF DALAM 3 MENIT</div>
+  <div class="timeout-warning">WIFI ACCESS POINT: ECU_SATRIA_FU (STABIL)</div>
   
   <!-- TAB NAVIGASI UTAMA -->
   <div class="tab-buttons">
@@ -642,7 +642,6 @@ void setupWebServer() {
     uint8_t slot = request->hasParam("slot") ? request->getParam("slot")->value().toInt() : 0;
     if (slot > 4) slot = 0;
     
-    // Kompatibilitas ArduinoJson 7 untuk GET Map
     JsonDocument doc;
     doc["rpmLimit"] = customMapSlots[slot].rpmLimit;
     
@@ -659,7 +658,6 @@ void setupWebServer() {
     request->send(200, "application/json", response);
   });
 
-  // --- ENDPOINT JSON AMBIL DATA LOG (KOMPATIBEL ARDUINOJSON v7) ---
   server.on("/getLogData", HTTP_GET, [](AsyncWebServerRequest *request){
     lastActivityTime = millis();
     
@@ -685,7 +683,6 @@ void setupWebServer() {
     request->send(response);
   });
 
-  // --- ENDPOINT BERSIHKAN LOG ---
   server.on("/clearLog", HTTP_GET, [](AsyncWebServerRequest *request){
     lastActivityTime = millis();
     portENTER_CRITICAL(&logMux);
@@ -695,7 +692,6 @@ void setupWebServer() {
     request->send(200, "text/plain", "Log Cleared");
   });
 
-  // --- ENDPOINT DOWNLOAD FILE CSV DATA LOGGER ---
   server.on("/downloadCSV", HTTP_GET, [](AsyncWebServerRequest *request){
     lastActivityTime = millis();
     AsyncResponseStream *response = request->beginResponseStream("text/csv");
@@ -752,15 +748,17 @@ void setupWebServer() {
 }
 
 void setup() {
-  setCpuFrequencyMhz(80); // Turunkan clock CPU ke 80MHz agar suhu stabil
+  setCpuFrequencyMhz(80); 
   
   Serial1.begin(250000, SERIAL_8N1, RX_PIN, TX_PIN);
   
-  WiFi.mode(WIFI_AP_STA);
+  // Inisialisasi stabil Wi-Fi Access Point
+  WiFi.mode(WIFI_AP);
   WiFi.softAP("ECU_SATRIA_FU", "kudus1234");
   
   esp_wifi_set_max_tx_power(50);
   
+  WiFi.enableSTA(true);
   esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);
   if (esp_now_init() == ESP_OK) {
     esp_now_peer_info_t peerInfo = {};
@@ -780,12 +778,14 @@ void setup() {
 void loop() {
   parseUART();
   
-  // Auto-Kill WiFi & Web Server setelah 3 Menit idle untuk efisiensi daya & suhu
+  // Timeout auto-sleep dimatikan sementara agar SSID Wi-Fi tidak hilang saat tuning
+  /*
   if (isWifiActive && (millis() - lastActivityTime > WIFI_TIMEOUT_MS)) {
     server.end();                 
     WiFi.softAPdisconnect(true);  
     isWifiActive = false;         
   }
+  */
   
   delay(1);
 }
