@@ -11,8 +11,8 @@
 #define TX_PIN 7
 
 // --- MAC ADDRESS TRANSMITTER ---
-uint8_t transmitterMac[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};[cite: 2]
-uint8_t displayMacAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};[cite: 2]
+uint8_t transmitterMac[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
+uint8_t displayMacAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 #define NUM_RPM_POINTS 15
 #define NUM_TPS_POINTS 5
@@ -21,7 +21,7 @@ AsyncWebServer server(80);
 
 // --- VARIABEL EFISIENSI & TIMEOUT WIFI ---
 unsigned long lastActivityTime = 0;
-const unsigned long WIFI_TIMEOUT_MS = 180000; // 3 Menit (180.000 ms)[cite: 2]
+const unsigned long WIFI_TIMEOUT_MS = 180000; // 3 Menit (180.000 ms)
 bool isWifiActive = true;
 
 // --- DATA LOGGER CONFIGURATION (RAM RING BUFFER) ---
@@ -48,11 +48,11 @@ const int16_t mapDaily3DBase[NUM_RPM_POINTS][NUM_TPS_POINTS] = {
   {280, 300, 320, 330, 330}, {300, 320, 340, 350, 350}, {310, 330, 350, 350, 350},
   {310, 330, 350, 350, 350}, {300, 320, 340, 340, 340}, {280, 300, 320, 320, 320},
   {260, 280, 300, 300, 300}, {250, 250, 280, 280, 280}, {250, 250, 250, 250, 250}
-};[cite: 2]
+};
 
 const uint16_t defaultDwellPerRPM[NUM_RPM_POINTS] = {
   3500, 3500, 3400, 3300, 3200, 3100, 3000, 2900, 2800, 2700, 2600, 2500, 2400, 2300, 2200
-};[cite: 2]
+};
 
 // --- STRUKTUR DATA TUNING ---
 struct CustomTuning {
@@ -60,7 +60,7 @@ struct CustomTuning {
   uint16_t dwellData[NUM_RPM_POINTS]; 
   uint16_t rpmLimit;
 };
-CustomTuning customMapSlots[5];[cite: 2]
+CustomTuning customMapSlots[5];
 
 // --- STRUKTUR DATA TELEMETRI & KOMANDO ---
 struct __attribute__((packed)) TelemetryData {
@@ -74,13 +74,13 @@ struct __attribute__((packed)) TelemetryData {
   uint8_t  fuel;
   uint8_t  state;
   uint16_t crc16;
-};[cite: 2]
+};
 
 struct __attribute__((packed)) CommandData {
   uint16_t header;     
   uint8_t requestedMode;
   uint16_t crc16;
-};[cite: 2]
+};
 
 struct __attribute__((packed)) CommandPacketToS3 {
   uint16_t header;       
@@ -90,10 +90,10 @@ struct __attribute__((packed)) CommandPacketToS3 {
   uint16_t dwellData[NUM_RPM_POINTS]; 
   uint16_t rpmLimit;     
   uint16_t crc16;      
-};[cite: 2]
+};
 
 portMUX_TYPE dataMux = portMUX_INITIALIZER_UNLOCKED;
-TelemetryData currentTelemetry = {0xAA55, 0, 0, 100, 300, 126, 0, 0, 0, 0};[cite: 2]
+TelemetryData currentTelemetry = {0xAA55, 0, 0, 100, 300, 126, 0, 0, 0, 0};
 
 uint16_t calculateCRC16(const uint8_t *data, size_t len) {
   uint16_t crc = 0xFFFF;
@@ -104,7 +104,7 @@ uint16_t calculateCRC16(const uint8_t *data, size_t len) {
     }
   }
   return crc;
-}[cite: 2]
+}
 
 // --- FUNGSI PEREKAMAN DATA LOG ---
 void pushToLog(const TelemetryData *pkt) {
@@ -142,7 +142,7 @@ void sendCommandToS3(uint8_t cmdType, uint8_t slot) {
   
   cmd.crc16 = calculateCRC16((uint8_t*)&cmd, sizeof(CommandPacketToS3) - sizeof(uint16_t));
   Serial1.write((uint8_t*)&cmd, sizeof(CommandPacketToS3));
-}[cite: 2]
+}
 
 void parseUART() {
   static uint8_t rxBuffer[sizeof(TelemetryData)];
@@ -170,7 +170,7 @@ void parseUART() {
       rxIndex = 0;
     }
   }
-}[cite: 2]
+}
 
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
 void OnEspNowRecv(const esp_now_recv_info_t * esp_now_info, const uint8_t *incomingData, int len) {
@@ -183,7 +183,7 @@ void OnEspNowRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
       sendCommandToS3(0x01, cmd->requestedMode); 
     }
   }
-}[cite: 2]
+}
 
 void loadMapFromNVS() {
   preferences.begin("ecu_tuning", false);
@@ -197,13 +197,13 @@ void loadMapFromNVS() {
     }
   }
   preferences.end();
-}[cite: 2]
+}
 
 void saveMapToNVS() {
   preferences.begin("ecu_tuning", false);
   preferences.putBytes("customMaps", &customMapSlots, sizeof(customMapSlots));
   preferences.end();
-}[cite: 2]
+}
 
 // --- TAMPILAN WEB UI RACING THEME LENGKAP + FITUR DOWNLOAD LOG ---
 const char* htmlUI = R"rawliteral(
@@ -536,12 +536,12 @@ window.onload = loadMap; window.onresize = drawChart;
 
 void setupWebServer() {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){ 
-    lastActivityTime = millis();[cite: 2]
+    lastActivityTime = millis();
     request->send_P(200, "text/html", htmlUI); 
   });
   
   server.on("/getMap", HTTP_GET, [](AsyncWebServerRequest *request){
-    lastActivityTime = millis();[cite: 2]
+    lastActivityTime = millis();
     uint8_t slot = request->hasParam("slot") ? request->getParam("slot")->value().toInt() : 0;
     if (slot > 4) slot = 0;
     
@@ -585,7 +585,7 @@ void setupWebServer() {
   });
 
   AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler("/saveTuning", [](AsyncWebServerRequest *request, JsonVariant &json) {
-    lastActivityTime = millis();[cite: 2]
+    lastActivityTime = millis();
     JsonObject obj = json.as<JsonObject>();
     uint8_t slot = obj["slot"].as<uint8_t>();
     if (slot > 4) slot = 0;
@@ -607,8 +607,8 @@ void setupWebServer() {
       d++;
     }
     
-    saveMapToNVS();[cite: 2]
-    sendCommandToS3(0x02, slot);[cite: 2]
+    saveMapToNVS();
+    sendCommandToS3(0x02, slot);
     request->send(200, "text/plain", "Saved & Sent");
   });
   
@@ -617,39 +617,40 @@ void setupWebServer() {
 }
 
 void setup() {
-  setCpuFrequencyMhz(80); // Turunkan clock CPU ke 80MHz agar suhu stabil[cite: 2]
+  setCpuFrequencyMhz(80); // Turunkan clock CPU ke 80MHz agar suhu stabil
   
-  Serial1.begin(250000, SERIAL_8N1, RX_PIN, TX_PIN);[cite: 2]
+  Serial1.begin(250000, SERIAL_8N1, RX_PIN, TX_PIN);
   
-  WiFi.mode(WIFI_AP_STA);[cite: 2]
-  WiFi.softAP("ECU_SATRIA_FU", "kudus1234");[cite: 2]
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP("ECU_SATRIA_FU", "kudus1234");
   
-  esp_wifi_set_max_tx_power(50);[cite: 2]
+  esp_wifi_set_max_tx_power(50);
   
-  esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);[cite: 2]
+  esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);
   if (esp_now_init() == ESP_OK) {
     esp_now_peer_info_t peerInfo = {};
     memcpy(peerInfo.peer_addr, displayMacAddress, 6);
     esp_now_add_peer(&peerInfo);
-    esp_now_register_recv_cb(OnEspNowRecv);[cite: 2]
+    esp_now_register_recv_cb(OnEspNowRecv);
   }
 
-  loadMapFromNVS();[cite: 2]
+  loadMapFromNVS();
   setupWebServer();
   
-  lastActivityTime = millis();[cite: 2]
-  delay(1000); sendCommandToS3(0x02, 0);[cite: 2]
+  lastActivityTime = millis();
+  delay(1000); 
+  sendCommandToS3(0x02, 0);
 }
 
 void loop() {
-  parseUART();[cite: 2]
+  parseUART();
   
   // Auto-Kill WiFi & Web Server setelah 3 Menit idle untuk efisiensi daya & suhu
   if (isWifiActive && (millis() - lastActivityTime > WIFI_TIMEOUT_MS)) {
-    server.end();                 [cite: 2]
-    WiFi.softAPdisconnect(true);  [cite: 2]
-    isWifiActive = false;         [cite: 2]
+    server.end();                 
+    WiFi.softAPdisconnect(true);  
+    isWifiActive = false;         
   }
   
-  delay(1);[cite: 2]
+  delay(1);
 }
