@@ -19,9 +19,9 @@ uint8_t displayMacAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 Preferences preferences;
 AsyncWebServer server(80);
 
-// --- VARIABEL EFISIENSI & TIMEOUT WIFI ---
+// --- VARIABEL EFISIENSI & TIMEOUT WIFI (5 MENIT) ---
 unsigned long lastActivityTime = 0;
-const unsigned long WIFI_TIMEOUT_MS = 180000; // 3 Menit (180.000 ms)
+const unsigned long WIFI_TIMEOUT_MS = 300000; // 5 Menit (300.000 ms)
 bool isWifiActive = true;
 
 // --- DATA LOGGER CONFIGURATION (RAM RING BUFFER) ---
@@ -212,7 +212,7 @@ const char* htmlUI = R"rawliteral(
   @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
   .header { text-align: center; padding: 15px 10px 5px 10px; }
   .header h1 { font-family: 'Orbitron', sans-serif; font-size: 24px; margin: 0; color: #fff; text-shadow: 0 0 10px #00ff87; }
-  .timeout-warning { text-align: center; font-size: 14px; color: #00ff87; margin-bottom: 15px; font-weight: 700; }
+  .timeout-warning { text-align: center; font-size: 13px; color: #ff9100; margin-bottom: 15px; font-weight: 700; }
   .container { max-width: 650px; margin: 0 auto; padding: 10px; }
   .card { background: rgba(20, 20, 25, 0.85); border: 1px solid rgba(0, 255, 136, 0.3); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
   .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -226,9 +226,21 @@ const char* htmlUI = R"rawliteral(
   .table-responsive { overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #222; max-height: 350px; }
   table { width: 100%; border-collapse: collapse; background: #08080c; }
   th, td { border: 1px solid #1a1a24; padding: 6px 4px; text-align: center; font-size: 12px; }
-  th { background: #12121a; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-size: 10px; position: sticky; top: 0; }
-  input.cell { width: 42px; background: #000; color: #00ff87; border: 1px solid #222; text-align: center; padding: 5px 1px; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 14px; border-radius: 4px; }
+  th { background: #12121a; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-size: 10px; position: sticky; top: 0; z-index: 2; }
+  
+  input.cell { width: 42px; background: #000; color: #00ff87; border: 1px solid #222; text-align: center; padding: 5px 1px; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 14px; border-radius: 4px; transition: 0.2s; }
+  input.cell.cell-drop { background: #550011 !important; color: #ff3366 !important; border-color: #ff0055 !important; box-shadow: 0 0 8px #ff0055; }
+  input.cell.cell-active { background: #00ff87 !important; color: #000 !important; font-weight: 900; animation: pulseGlow 0.8s infinite alternate; }
+  @keyframes pulseGlow { 0% { box-shadow: 0 0 5px #00ff87; } 100% { box-shadow: 0 0 15px #00ff87; } }
+  
   input.dwell-cell { color: #00e5ff; width: 75px; }
+  
+  .quick-adj-bar { display: flex; gap: 10px; margin-bottom: 12px; background: #111; padding: 8px; border-radius: 8px; border: 1px solid #222; align-items: center; justify-content: space-around; }
+  .btn-adj { background: #222; border: 1px solid #00e5ff; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-weight: bold; font-size: 14px; padding: 6px 16px; border-radius: 6px; cursor: pointer; }
+  .btn-adj:active { background: #00e5ff; color: #000; }
+  
+  .tr-alert { background: rgba(255, 0, 85, 0.25) !important; color: #ff3366 !important; font-weight: bold; }
+  
   .btn-save { background: linear-gradient(135deg, #ff0055, #ff5500); color: #fff; font-family: 'Orbitron', sans-serif; font-weight: 900; border: none; padding: 14px 20px; font-size: 14px; border-radius: 8px; cursor: pointer; width: 100%; letter-spacing: 2px; margin-bottom: 10px; text-transform: uppercase; }
   .btn-log { background: linear-gradient(135deg, #00e5ff, #0077ff); color: #fff; font-family: 'Orbitron', sans-serif; font-weight: 900; border: none; padding: 12px 20px; font-size: 12px; border-radius: 8px; cursor: pointer; width: 100%; display: block; text-align: center; text-decoration: none; box-sizing: border-box; margin-bottom: 8px; }
   .btn-clear { background: #333; color: #ccc; font-family: 'Orbitron', sans-serif; font-weight: 700; border: 1px solid #444; padding: 10px 20px; font-size: 11px; border-radius: 8px; cursor: pointer; width: 100%; text-align: center; box-sizing: border-box; }
@@ -238,7 +250,7 @@ const char* htmlUI = R"rawliteral(
 <div class="marquee-box"><div class="marquee-inner"><div class="marquee-text">🏁 TEAM PATAS KUDUS SATRIA CLUB — TCI IGNITION MAP — CUSTOM TUNING SYSTEM — 🏁</div></div></div>
 <div class="header"><h1>TEAM PATAS KUDUS</h1></div>
 <div class="container">
-  <div class="timeout-warning">WIFI ACCESS POINT: ECU_SATRIA_FU (STABIL)</div>
+  <div class="timeout-warning">WIFI AUTO-SLEEP OFF DALAM 5 MENIT IDLE (ESP-NOW TETAP ON)</div>
   
   <div class="tab-buttons">
     <button class="tab-btn active" id="btnTabDegree" onclick="switchMainTab('degree')">MAP 3D</button>
@@ -264,6 +276,15 @@ const char* htmlUI = R"rawliteral(
           <input type="number" id="rpmLimit" class="cfg" value="12500" step="100">
         </div>
       </div>
+    </div>
+
+    <!-- QUICK ADJUST BAR FOR EASY TUNING -->
+    <div class="quick-adj-bar">
+      <span style="font-size:11px; color:#aaa; font-family:'Orbitron';">KOREKSI CEPAT:</span>
+      <button class="btn-adj" onclick="adjustSelectedCell(-10)">- 1.0&deg;</button>
+      <button class="btn-adj" onclick="adjustSelectedCell(-5)">- 0.5&deg;</button>
+      <button class="btn-adj" onclick="adjustSelectedCell(5)">+ 0.5&deg;</button>
+      <button class="btn-adj" onclick="adjustSelectedCell(10)">+ 1.0&deg;</button>
     </div>
 
     <div class="tab-buttons" style="margin-bottom: 8px;">
@@ -295,7 +316,7 @@ const char* htmlUI = R"rawliteral(
 
   <div id="loggerSection" style="display:none;">
     <div class="card" style="text-align: center;">
-      <label style="color: #00e5ff; margin-bottom: 10px;">RIWAYAT REKAMAN DATA MESIN (RAM BUFFER)</label>
+      <label style="color: #00e5ff; margin-bottom: 10px;">RIWAYAT REKAMAN DATA MESIN (RED FLAG DETECTOR)</label>
       <button class="btn-log" onclick="fetchLiveDataLog()" style="margin-bottom: 10px;">MUAT ULANG TABEL LOG</button>
       <a href="/downloadCSV" class="btn-log">DOWNLOAD FILE CSV</a>
       <button class="btn-clear" onclick="clearLogData()">BERSIHKAN LOG</button>
@@ -318,6 +339,7 @@ const char* htmlUI = R"rawliteral(
 
 <script>
 const rpmLabels = ["1k","2k","3k","4k","5k","6k","7k","8k","9k","10k","11k","12k","13k","14k","15k"];
+let lastFocusedCell = null;
 
 function switchMainTab(tab) {
   if (tab === 'logger') {
@@ -353,6 +375,7 @@ function switchSubTab(sub) {
   drawChart();
 }
 
+// LOGIKA RED FLAGGING DI TABEL DATA LOGGER (MERAH JIKA SUHU OVERHEAT ATAU AKI DROP)
 function fetchLiveDataLog() {
   fetch('/getLogData').then(r => r.json()).then(data => {
     let tbody = document.getElementById('logTableBody');
@@ -364,13 +387,21 @@ function fetchLiveDataLog() {
     let revLogs = data.logs.reverse();
     revLogs.forEach(entry => {
       let tr = document.createElement('tr');
+      
+      let isTempAlert = (entry.temp / 10.0) >= 90.0; // Suhu > 90C
+      let isBattAlert = (entry.batt / 10.0) <= 11.5; // Aki < 11.5V
+      
+      if (isTempAlert || isBattAlert) {
+        tr.classList.add('tr-alert'); // Tandai baris dengan warna merah terang
+      }
+      
       tr.innerHTML = `
         <td style="color: #aaa;">${(entry.t / 1000).toFixed(1)}s</td>
         <td style="color: #00ff87; font-weight: bold;">${entry.r}</td>
         <td>${entry.p}%</td>
         <td style="color: #00e5ff;">${(entry.a / 10).toFixed(1)}&deg;</td>
-        <td>${(entry.temp / 10).toFixed(1)}&deg;C</td>
-        <td>${(entry.batt / 10).toFixed(1)}V</td>
+        <td style="${isTempAlert ? 'color:#ff0055; font-weight:900;' : ''}">${(entry.temp / 10).toFixed(1)}&deg;C</td>
+        <td style="${isBattAlert ? 'color:#ff0055; font-weight:900;' : ''}">${(entry.batt / 10).toFixed(1)}V</td>
       `;
       tbody.appendChild(tr);
     });
@@ -383,6 +414,39 @@ function clearLogData() {
       fetchLiveDataLog();
       alert('Log berhasil dibersihkan.');
     });
+  }
+}
+
+// TOMBOL KOREKSI CEPAT (+1 / -1 DERAJAT)
+function adjustSelectedCell(delta) {
+  if (lastFocusedCell) {
+    let currentVal = parseInt(lastFocusedCell.value) || 0;
+    let newVal = currentVal + delta;
+    if (newVal < 0) newVal = 0;
+    if (newVal > 450) newVal = 450;
+    lastFocusedCell.value = newVal;
+    drawChart();
+    checkPowerDropPatterns();
+  } else {
+    alert('Pilih/Klik salah satu kotak sel pada tabel Map 3D terlebih dahulu!');
+  }
+}
+
+// DETEKSI PENURUNAN DERAJAT (DROP POWER PATTERN) PADA MAP 3D
+function checkPowerDropPatterns() {
+  for(let r = 0; r < 15; r++) {
+    for(let t = 0; t < 5; t++) {
+      let cell = document.getElementById(`c_${r}_${t}`);
+      if (cell) {
+        let val = parseInt(cell.value) || 0;
+        // Jika RPM > 7k (index r >= 7) tapi derajat ditarik mundur terlalu ekstrem (<15 derajat / 150)
+        if (r >= 7 && val < 150) {
+          cell.classList.add('cell-drop'); // Beri warna merah pada sel
+        } else {
+          cell.classList.remove('cell-drop');
+        }
+      }
+    }
   }
 }
 
@@ -458,7 +522,7 @@ function loadMap() {
       for(let t = 0; t < 5; t++) {
         let td = document.createElement('td');
         let val = (data.map && data.map[r]) ? data.map[r][t] : 100;
-        td.innerHTML = `<input type="number" class="cell" id="c_${r}_${t}" value="${val}" oninput="drawChart()">`;
+        td.innerHTML = `<input type="number" class="cell" id="c_${r}_${t}" value="${val}" onfocus="lastFocusedCell=this" oninput="drawChart(); checkPowerDropPatterns();">`;
         tr.appendChild(td);
       }
       tbodyMap.appendChild(tr);
@@ -475,6 +539,7 @@ function loadMap() {
       tr.appendChild(tdRpm); tr.appendChild(tdDwell); tr.appendChild(tdDesc); tbodyDwell.appendChild(tr);
     }
     drawChart();
+    checkPowerDropPatterns();
   });
 }
 
@@ -592,6 +657,7 @@ void setupWebServer() {
     saveMapToNVS();
     sendCommandToS3(0x02, slot);
     request->send(200, "text/plain", "Saved & Sent");
+    lastActivityTime = millis();
   });
   
   server.addHandler(handler);
@@ -602,12 +668,12 @@ void setup() {
   setCpuFrequencyMhz(80); 
   Serial1.begin(250000, SERIAL_8N1, RX_PIN, TX_PIN);
   
-  // 1. Inisialisasi Murni Access Point Terlebih Dahulu agar SSID Terbroadcast Stabil
+  // 1. Inisialisasi Access Point
   WiFi.mode(WIFI_AP);
   WiFi.softAP("ECU_SATRIA_FU", "kudus1234");
   esp_wifi_set_max_tx_power(50);
   
-  // 2. Inisialisasi ESP-NOW secara aman setelah AP aktif
+  // 2. Inisialisasi ESP-NOW
   WiFi.enableSTA(true);
   esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);
   if (esp_now_init() == ESP_OK) {
@@ -626,6 +692,15 @@ void setup() {
 }
 
 void loop() {
+  // UART dan ESP-NOW TETAP RUNNING 100% SELAMANYA
   parseUART();
+  
+  // LOGIKA AUTO-SLEEP WIFI (5 MENIT IDLE)
+  if (isWifiActive && (millis() - lastActivityTime > WIFI_TIMEOUT_MS)) {
+    server.end();                 // Matikan Web Server
+    WiFi.softAPdisconnect(true);  // Matikan pancaran SSID Wi-Fi (AP)
+    isWifiActive = false;         
+  }
+  
   delay(1);
 }
