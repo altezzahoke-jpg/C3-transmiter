@@ -10,7 +10,7 @@
 #define RX_PIN 6
 #define TX_PIN 7
 
-// --- MAC ADDRESS TRANSMITTER ---
+// --- MAC ADDRESS TRANSMITTER & DISPLAY ---
 uint8_t transmitterMac[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
 uint8_t displayMacAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
@@ -23,6 +23,11 @@ AsyncWebServer server(80);
 unsigned long lastActivityTime = 0;
 const unsigned long WIFI_TIMEOUT_MS = 300000; // 5 Menit (300.000 ms)
 bool isWifiActive = true;
+
+// --- STATUS KONEKSI UART & FAILSAFE ---
+unsigned long lastUartRxTime = 0;
+const unsigned long UART_TIMEOUT_MS = 2000; // 2 Detik Timeout
+bool isEcuConnected = false;
 
 // --- DATA LOGGER CONFIGURATION (RAM RING BUFFER) ---
 #define MAX_LOG_ENTRIES 800
@@ -39,6 +44,7 @@ struct LogEntry {
 LogEntry logBuffer[MAX_LOG_ENTRIES];
 uint16_t logHead = 0;
 uint16_t logCount = 0;
+bool bufferOverflowed = false; // Deteksi jika buffer meluber
 portMUX_TYPE logMux = portMUX_INITIALIZER_UNLOCKED;
 
 // --- DATA BAWAAN DEFAULT ---
@@ -60,6 +66,7 @@ struct CustomTuning {
   uint16_t rpmLimit;
 };
 CustomTuning customMapSlots[5];
+uint8_t currentActiveSlot = 0; // Slot aktif tersimpan
 
 struct __attribute__((packed)) TelemetryData {
   uint16_t header;     
@@ -116,7 +123,11 @@ void pushToLog(const TelemetryData *pkt) {
     .battVolt10 = pkt->battVolt10
   };
   logHead = (logHead + 1) % MAX_LOG_ENTRIES;
-  if (logCount < MAX_LOG_ENTRIES) logCount++;
+  if (logCount < MAX_LOG_ENTRIES) {
+    logCount++;
+  } else {
+    bufferOverflowed = true; // Tandai jika buffer meluber
+  }
   portEXIT_CRITICAL(&logMux);
 }
 
@@ -158,6 +169,10 @@ void parseUART() {
         portENTER_CRITICAL(&dataMux);
         memcpy(&currentTelemetry, pkt, sizeof(TelemetryData));
         portEXIT_CRITICAL(&dataMux);
+        
+        lastUartRxTime = millis(); // Reset UART timeout
+        isEcuConnected = true;
+        
         pushToLog(pkt); 
         esp_now_send(displayMacAddress, rxBuffer, sizeof(TelemetryData));
       }
@@ -181,6 +196,9 @@ void OnEspNowRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
 void loadMapFromNVS() {
   preferences.begin("ecu_tuning", false);
+  currentActiveSlot = preferences.getUChar("activeSlot", 0);
+  if (currentActiveSlot > 4) currentActiveSlot = 0;
+
   if (preferences.getBytesLength("customMaps") == sizeof(customMapSlots)) {
     preferences.getBytes("customMaps", &customMapSlots, sizeof(customMapSlots));
   } else {
@@ -195,6 +213,7 @@ void loadMapFromNVS() {
 
 void saveMapToNVS() {
   preferences.begin("ecu_tuning", false);
+  preferences.putUChar("activeSlot", currentActiveSlot);
   preferences.putBytes("customMaps", &customMapSlots, sizeof(customMapSlots));
   preferences.end();
 }
@@ -212,7 +231,12 @@ const char* htmlUI = R"rawliteral(
   @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
   .header { text-align: center; padding: 15px 10px 5px 10px; }
   .header h1 { font-family: 'Orbitron', sans-serif; font-size: 24px; margin: 0; color: #fff; text-shadow: 0 0 10px #00ff87; }
-  .timeout-warning { text-align: center; font-size: 13px; color: #ff9100; margin-bottom: 15px; font-weight: 700; }
+  
+  .status-bar { display: flex; justify-content: space-between; align-items: center; background: #111; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; font-family: 'Orbitron'; font-size: 11px; border: 1px solid #222; }
+  .ecu-online { color: #00ff87; font-weight: bold; text-shadow: 0 0 5px #00ff87; }
+  .ecu-offline { color: #ff0055; font-weight: bold; text-shadow: 0 0 5px #ff0055; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0.3; } }
+
   .container { max-width: 650px; margin: 0 auto; padding: 10px; }
   .card { background: rgba(20, 20, 25, 0.85); border: 1px solid rgba(0, 255, 136, 0.3); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
   .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -230,8 +254,7 @@ const char* htmlUI = R"rawliteral(
   
   input.cell { width: 42px; background: #000; color: #00ff87; border: 1px solid #222; text-align: center; padding: 5px 1px; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 14px; border-radius: 4px; transition: 0.2s; }
   input.cell.cell-drop { background: #550011 !important; color: #ff3366 !important; border-color: #ff0055 !important; box-shadow: 0 0 8px #ff0055; }
-  input.cell.cell-active { background: #00ff87 !important; color: #000 !important; font-weight: 900; animation: pulseGlow 0.8s infinite alternate; }
-  @keyframes pulseGlow { 0% { box-shadow: 0 0 5px #00ff87; } 100% { box-shadow: 0 0 15px #00ff87; } }
+  input.cell.cell-active { background: #00ff87 !important; color: #000 !important; font-weight: 900; box-shadow: 0 0 12px #00ff87; }
   
   input.dwell-cell { color: #00e5ff; width: 75px; }
   
@@ -250,8 +273,13 @@ const char* htmlUI = R"rawliteral(
 <div class="marquee-box"><div class="marquee-inner"><div class="marquee-text">🏁 TEAM PATAS KUDUS SATRIA CLUB — TCI IGNITION MAP — CUSTOM TUNING SYSTEM — 🏁</div></div></div>
 <div class="header"><h1>TEAM PATAS KUDUS</h1></div>
 <div class="container">
-  <div class="timeout-warning">WIFI AUTO-SLEEP OFF DALAM 5 MENIT IDLE (ESP-NOW TETAP ON)</div>
   
+  <!-- BARIS STATUS SISTEM & KONEKSI UART -->
+  <div class="status-bar">
+    <span>KONEKSI ECU (UART): <span id="ecuStatus" class="ecu-offline">MENGECEK...</span></span>
+    <span>LIVE RPM: <span id="liveRpm" style="color:#00ff87;">0</span></span>
+  </div>
+
   <div class="tab-buttons">
     <button class="tab-btn active" id="btnTabDegree" onclick="switchMainTab('degree')">MAP 3D</button>
     <button class="tab-btn" id="btnTabDwell" onclick="switchMainTab('dwell')">DWELL</button>
@@ -278,7 +306,6 @@ const char* htmlUI = R"rawliteral(
       </div>
     </div>
 
-    <!-- QUICK ADJUST BAR FOR EASY TUNING -->
     <div class="quick-adj-bar">
       <span style="font-size:11px; color:#aaa; font-family:'Orbitron';">KOREKSI CEPAT:</span>
       <button class="btn-adj" onclick="adjustSelectedCell(-10)">- 1.0&deg;</button>
@@ -316,7 +343,8 @@ const char* htmlUI = R"rawliteral(
 
   <div id="loggerSection" style="display:none;">
     <div class="card" style="text-align: center;">
-      <label style="color: #00e5ff; margin-bottom: 10px;">RIWAYAT REKAMAN DATA MESIN (RED FLAG DETECTOR)</label>
+      <label style="color: #00e5ff; margin-bottom: 5px;">RIWAYAT REKAMAN DATA MESIN</label>
+      <div id="overflowBadge" style="display:none; color:#ff9100; font-size:11px; margin-bottom:10px;">⚠️ RAM BUFFER MELUBER (LOG LAMA TERTIMPA)</div>
       <button class="btn-log" onclick="fetchLiveDataLog()" style="margin-bottom: 10px;">MUAT ULANG TABEL LOG</button>
       <a href="/downloadCSV" class="btn-log">DOWNLOAD FILE CSV</a>
       <button class="btn-clear" onclick="clearLogData()">BERSIHKAN LOG</button>
@@ -375,11 +403,45 @@ function switchSubTab(sub) {
   drawChart();
 }
 
-// LOGIKA RED FLAGGING DI TABEL DATA LOGGER (MERAH JIKA SUHU OVERHEAT ATAU AKI DROP)
+// AMBIL STATUS LIVE ECU & TRACKING DERAJAT AKTIF
+function pollLiveStatus() {
+  fetch('/getLiveStatus').then(r => r.json()).then(data => {
+    let statusEl = document.getElementById('ecuStatus');
+    let rpmEl = document.getElementById('liveRpm');
+    
+    if (data.ecuOnline) {
+      statusEl.innerText = "ONLINE (S3 CONNECTED)";
+      statusEl.className = "ecu-online";
+    } else {
+      statusEl.innerText = "OFFLINE / DISCONNECTED";
+      statusEl.className = "ecu-offline";
+    }
+    
+    rpmEl.innerText = data.rpm;
+    
+    // Live Active Cell Tracking pada Map 3D
+    document.querySelectorAll('.cell-active').forEach(c => c.classList.remove('cell-active'));
+    if (data.rpm >= 1000) {
+      let rIdx = Math.min(14, Math.floor((data.rpm - 1000) / 1000));
+      let tIdx = Math.min(4, Math.floor(data.tps / 25));
+      let activeCell = document.getElementById(`c_${rIdx}_${tIdx}`);
+      if (activeCell) activeCell.classList.add('cell-active');
+    }
+  }).catch(e => {});
+}
+setInterval(pollLiveStatus, 500); // Poll setiap 500ms
+
 function fetchLiveDataLog() {
   fetch('/getLogData').then(r => r.json()).then(data => {
     let tbody = document.getElementById('logTableBody');
     tbody.innerHTML = '';
+    
+    if (data.overflow) {
+      document.getElementById('overflowBadge').style.display = 'block';
+    } else {
+      document.getElementById('overflowBadge').style.display = 'none';
+    }
+
     if (!data.logs || data.logs.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" style="color: #666;">Belum ada data log (mesin belum berputar > 400 RPM).</td></tr>';
       return;
@@ -387,13 +449,10 @@ function fetchLiveDataLog() {
     let revLogs = data.logs.reverse();
     revLogs.forEach(entry => {
       let tr = document.createElement('tr');
+      let isTempAlert = (entry.temp / 10.0) >= 90.0;
+      let isBattAlert = (entry.batt / 10.0) <= 11.5;
       
-      let isTempAlert = (entry.temp / 10.0) >= 90.0; // Suhu > 90C
-      let isBattAlert = (entry.batt / 10.0) <= 11.5; // Aki < 11.5V
-      
-      if (isTempAlert || isBattAlert) {
-        tr.classList.add('tr-alert'); // Tandai baris dengan warna merah terang
-      }
+      if (isTempAlert || isBattAlert) tr.classList.add('tr-alert');
       
       tr.innerHTML = `
         <td style="color: #aaa;">${(entry.t / 1000).toFixed(1)}s</td>
@@ -417,7 +476,6 @@ function clearLogData() {
   }
 }
 
-// TOMBOL KOREKSI CEPAT (+1 / -1 DERAJAT)
 function adjustSelectedCell(delta) {
   if (lastFocusedCell) {
     let currentVal = parseInt(lastFocusedCell.value) || 0;
@@ -432,19 +490,14 @@ function adjustSelectedCell(delta) {
   }
 }
 
-// DETEKSI PENURUNAN DERAJAT (DROP POWER PATTERN) PADA MAP 3D
 function checkPowerDropPatterns() {
   for(let r = 0; r < 15; r++) {
     for(let t = 0; t < 5; t++) {
       let cell = document.getElementById(`c_${r}_${t}`);
       if (cell) {
         let val = parseInt(cell.value) || 0;
-        // Jika RPM > 7k (index r >= 7) tapi derajat ditarik mundur terlalu ekstrem (<15 derajat / 150)
-        if (r >= 7 && val < 150) {
-          cell.classList.add('cell-drop'); // Beri warna merah pada sel
-        } else {
-          cell.classList.remove('cell-drop');
-        }
+        if (r >= 7 && val < 150) cell.classList.add('cell-drop');
+        else cell.classList.remove('cell-drop');
       }
     }
   }
@@ -557,7 +610,14 @@ function saveAndSend() {
   .then(r => r.text()).then(msg => alert('Map Custom ' + (slot+1) + ' Berhasil Disimpan & Dikirim ke ECU!'));
 }
 
-window.onload = loadMap; window.onresize = drawChart;
+window.onload = function() {
+  // Sync slot aktif dari NVS saat pertama kali halaman dimuat
+  fetch('/getLiveStatus').then(r => r.json()).then(d => {
+    document.getElementById('slotSelect').value = d.activeSlot;
+    loadMap();
+  }).catch(e => loadMap());
+};
+window.onresize = drawChart;
 </script>
 </body></html>
 )rawliteral";
@@ -568,6 +628,27 @@ void setupWebServer() {
     request->send_P(200, "text/html", htmlUI); 
   });
   
+  // ENDPOINT AMAN BACA STATUS TELEMETRI LIVE (TERPROTEKSI MULTITASK MUX)
+  server.on("/getLiveStatus", HTTP_GET, [](AsyncWebServerRequest *request){
+    lastActivityTime = millis();
+    JsonDocument doc;
+    
+    portENTER_CRITICAL(&dataMux);
+    doc["rpm"] = currentTelemetry.rpm;
+    doc["tps"] = currentTelemetry.tps;
+    doc["deg"] = currentTelemetry.degree10;
+    doc["temp"] = currentTelemetry.temp10;
+    doc["batt"] = currentTelemetry.battVolt10;
+    portEXIT_CRITICAL(&dataMux);
+
+    doc["ecuOnline"] = isEcuConnected;
+    doc["activeSlot"] = currentActiveSlot;
+
+    String resp;
+    serializeJson(doc, resp);
+    request->send(200, "application/json", resp);
+  });
+
   server.on("/getMap", HTTP_GET, [](AsyncWebServerRequest *request){
     lastActivityTime = millis();
     uint8_t slot = request->hasParam("slot") ? request->getParam("slot")->value().toInt() : 0;
@@ -589,6 +670,8 @@ void setupWebServer() {
     lastActivityTime = millis();
     AsyncResponseStream *response = request->beginResponseStream("application/json");
     JsonDocument doc;
+    doc["overflow"] = bufferOverflowed; // Kirim status overflow
+    
     JsonArray arr = doc["logs"].to<JsonArray>();
     portENTER_CRITICAL(&logMux);
     uint16_t startIdx = (logCount < MAX_LOG_ENTRIES) ? 0 : logHead;
@@ -610,7 +693,7 @@ void setupWebServer() {
   server.on("/clearLog", HTTP_GET, [](AsyncWebServerRequest *request){
     lastActivityTime = millis();
     portENTER_CRITICAL(&logMux);
-    logHead = 0; logCount = 0;
+    logHead = 0; logCount = 0; bufferOverflowed = false;
     portEXIT_CRITICAL(&logMux);
     request->send(200, "text/plain", "Log Cleared");
   });
@@ -639,7 +722,10 @@ void setupWebServer() {
     JsonObject obj = json.as<JsonObject>();
     uint8_t slot = obj["slot"].as<uint8_t>();
     if (slot > 4) slot = 0;
+    
+    currentActiveSlot = slot; // Update slot aktif yang baru
     customMapSlots[slot].rpmLimit = obj["rpmLimit"].as<uint16_t>();
+    
     JsonArray arrMap = obj["map"].as<JsonArray>(); int r = 0;
     for(JsonVariant row : arrMap) {
       if(r >= NUM_RPM_POINTS) break; int t = 0;
@@ -668,12 +754,10 @@ void setup() {
   setCpuFrequencyMhz(80); 
   Serial1.begin(250000, SERIAL_8N1, RX_PIN, TX_PIN);
   
-  // 1. Inisialisasi Access Point
   WiFi.mode(WIFI_AP);
   WiFi.softAP("ECU_SATRIA_FU", "kudus1234");
   esp_wifi_set_max_tx_power(50);
   
-  // 2. Inisialisasi ESP-NOW
   WiFi.enableSTA(true);
   esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);
   if (esp_now_init() == ESP_OK) {
@@ -688,17 +772,26 @@ void setup() {
   
   lastActivityTime = millis();
   delay(1000); 
-  sendCommandToS3(0x02, 0);
+  
+  // Kirimkan slot map aktif terakhir yang tersimpan di NVS ke ESP32-S3
+  sendCommandToS3(0x02, currentActiveSlot);
 }
 
 void loop() {
-  // UART dan ESP-NOW TETAP RUNNING 100% SELAMANYA
   parseUART();
   
-  // LOGIKA AUTO-SLEEP WIFI (5 MENIT IDLE)
+  // DETEKSI TIMEOUT UART (FAILSAFE ECU DISCONNECTED)
+  if (millis() - lastUartRxTime > UART_TIMEOUT_MS) {
+    isEcuConnected = false;
+    portENTER_CRITICAL(&dataMux);
+    currentTelemetry.rpm = 0;
+    portEXIT_CRITICAL(&dataMux);
+  }
+
+  // AUTO-SLEEP WIFI 5 MENIT IDLE (ESP-NOW TETAP ALIVE)
   if (isWifiActive && (millis() - lastActivityTime > WIFI_TIMEOUT_MS)) {
-    server.end();                 // Matikan Web Server
-    WiFi.softAPdisconnect(true);  // Matikan pancaran SSID Wi-Fi (AP)
+    server.end();                 
+    WiFi.softAPdisconnect(true);  
     isWifiActive = false;         
   }
   
