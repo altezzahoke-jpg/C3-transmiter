@@ -11,8 +11,8 @@
 #define TX_PIN 7
 
 // --- MAC ADDRESS TRANSMITTER ---
-uint8_t transmitterMac[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
-uint8_t displayMacAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+uint8_t transmitterMac[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};[cite: 2]
+uint8_t displayMacAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};[cite: 2]
 
 #define NUM_RPM_POINTS 15
 #define NUM_TPS_POINTS 5
@@ -21,11 +21,11 @@ AsyncWebServer server(80);
 
 // --- VARIABEL EFISIENSI & TIMEOUT WIFI ---
 unsigned long lastActivityTime = 0;
-const unsigned long WIFI_TIMEOUT_MS = 180000; // 3 Menit (180.000 ms)
+const unsigned long WIFI_TIMEOUT_MS = 180000; // 3 Menit (180.000 ms)[cite: 2]
 bool isWifiActive = true;
 
 // --- DATA LOGGER CONFIGURATION (RAM RING BUFFER) ---
-#define MAX_LOG_ENTRIES 1500 // Kapasitas data log di RAM (~30KB)
+#define MAX_LOG_ENTRIES 1000 // Kapasitas log di RAM (dioptimalkan untuk kestabilan web JSON)
 
 struct LogEntry {
   uint32_t timestampMs;
@@ -48,11 +48,11 @@ const int16_t mapDaily3DBase[NUM_RPM_POINTS][NUM_TPS_POINTS] = {
   {280, 300, 320, 330, 330}, {300, 320, 340, 350, 350}, {310, 330, 350, 350, 350},
   {310, 330, 350, 350, 350}, {300, 320, 340, 340, 340}, {280, 300, 320, 320, 320},
   {260, 280, 300, 300, 300}, {250, 250, 280, 280, 280}, {250, 250, 250, 250, 250}
-};
+};[cite: 2]
 
 const uint16_t defaultDwellPerRPM[NUM_RPM_POINTS] = {
   3500, 3500, 3400, 3300, 3200, 3100, 3000, 2900, 2800, 2700, 2600, 2500, 2400, 2300, 2200
-};
+};[cite: 2]
 
 // --- STRUKTUR DATA TUNING ---
 struct CustomTuning {
@@ -60,7 +60,7 @@ struct CustomTuning {
   uint16_t dwellData[NUM_RPM_POINTS]; 
   uint16_t rpmLimit;
 };
-CustomTuning customMapSlots[5];
+CustomTuning customMapSlots[5];[cite: 2]
 
 // --- STRUKTUR DATA TELEMETRI & KOMANDO ---
 struct __attribute__((packed)) TelemetryData {
@@ -74,13 +74,13 @@ struct __attribute__((packed)) TelemetryData {
   uint8_t  fuel;
   uint8_t  state;
   uint16_t crc16;
-};
+};[cite: 2]
 
 struct __attribute__((packed)) CommandData {
   uint16_t header;     
   uint8_t requestedMode;
   uint16_t crc16;
-};
+};[cite: 2]
 
 struct __attribute__((packed)) CommandPacketToS3 {
   uint16_t header;       
@@ -90,10 +90,10 @@ struct __attribute__((packed)) CommandPacketToS3 {
   uint16_t dwellData[NUM_RPM_POINTS]; 
   uint16_t rpmLimit;     
   uint16_t crc16;      
-};
+};[cite: 2]
 
 portMUX_TYPE dataMux = portMUX_INITIALIZER_UNLOCKED;
-TelemetryData currentTelemetry = {0xAA55, 0, 0, 100, 300, 126, 0, 0, 0, 0};
+TelemetryData currentTelemetry = {0xAA55, 0, 0, 100, 300, 126, 0, 0, 0, 0};[cite: 2]
 
 uint16_t calculateCRC16(const uint8_t *data, size_t len) {
   uint16_t crc = 0xFFFF;
@@ -104,7 +104,7 @@ uint16_t calculateCRC16(const uint8_t *data, size_t len) {
     }
   }
   return crc;
-}
+}[cite: 2]
 
 // --- FUNGSI PEREKAMAN DATA LOG ---
 void pushToLog(const TelemetryData *pkt) {
@@ -142,7 +142,7 @@ void sendCommandToS3(uint8_t cmdType, uint8_t slot) {
   
   cmd.crc16 = calculateCRC16((uint8_t*)&cmd, sizeof(CommandPacketToS3) - sizeof(uint16_t));
   Serial1.write((uint8_t*)&cmd, sizeof(CommandPacketToS3));
-}
+}[cite: 2]
 
 void parseUART() {
   static uint8_t rxBuffer[sizeof(TelemetryData)];
@@ -163,14 +163,14 @@ void parseUART() {
         memcpy(&currentTelemetry, pkt, sizeof(TelemetryData));
         portEXIT_CRITICAL(&dataMux);
         
-        pushToLog(pkt); // Rekam telemetri aktif ke log buffer RAM
+        pushToLog(pkt); 
         
         esp_now_send(displayMacAddress, rxBuffer, sizeof(TelemetryData));
       }
       rxIndex = 0;
     }
   }
-}
+}[cite: 2]
 
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
 void OnEspNowRecv(const esp_now_recv_info_t * esp_now_info, const uint8_t *incomingData, int len) {
@@ -183,7 +183,7 @@ void OnEspNowRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
       sendCommandToS3(0x01, cmd->requestedMode); 
     }
   }
-}
+}[cite: 2]
 
 void loadMapFromNVS() {
   preferences.begin("ecu_tuning", false);
@@ -197,19 +197,19 @@ void loadMapFromNVS() {
     }
   }
   preferences.end();
-}
+}[cite: 2]
 
 void saveMapToNVS() {
   preferences.begin("ecu_tuning", false);
   preferences.putBytes("customMaps", &customMapSlots, sizeof(customMapSlots));
   preferences.end();
-}
+}[cite: 2]
 
-// --- TAMPILAN WEB UI RACING THEME LENGKAP + FITUR DOWNLOAD LOG ---
+// --- TAMPILAN WEB UI LENGKAP DENGAN TAB DATA LOGGER LIVE ---
 const char* htmlUI = R"rawliteral(
 <!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TEAM PATAS KUDUS - ECU TUNER</title>
+<title>TEAM PATAS KUDUS - ECU TUNER & LOGGER</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@600;700&display=swap');
   
@@ -284,11 +284,11 @@ const char* htmlUI = R"rawliteral(
     font-size: 13px; border-radius: 6px; box-shadow: inset 0 0 5px rgba(0, 255, 136, 0.2); outline: none;
   }
 
-  .tab-buttons { display: flex; gap: 8px; margin-bottom: 12px; }
+  .tab-buttons { display: flex; gap: 6px; margin-bottom: 12px; }
   .tab-btn {
     flex: 1; background: #111; border: 1px solid #333; color: #aaa;
-    padding: 10px; font-family: 'Orbitron', sans-serif; font-size: 11px;
-    font-weight: 700; border-radius: 6px; cursor: pointer; transition: 0.3s;
+    padding: 8px 4px; font-family: 'Orbitron', sans-serif; font-size: 10px;
+    font-weight: 700; border-radius: 6px; cursor: pointer; transition: 0.3s; text-align: center;
   }
   .tab-btn.active {
     background: linear-gradient(180deg, #00ff87, #009951); color: #000;
@@ -301,10 +301,10 @@ const char* htmlUI = R"rawliteral(
   }
   .chart-title { font-family: 'Orbitron', sans-serif; font-size: 11px; color: #00e5ff; text-align: center; margin-bottom: 6px; letter-spacing: 1px; }
 
-  .table-responsive { overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #222; }
+  .table-responsive { overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #222; max-height: 350px; }
   table { width: 100%; border-collapse: collapse; background: #08080c; }
-  th, td { border: 1px solid #1a1a24; padding: 5px 2px; text-align: center; font-size: 12px; }
-  th { background: #12121a; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-size: 10px; }
+  th, td { border: 1px solid #1a1a24; padding: 6px 4px; text-align: center; font-size: 12px; }
+  th { background: #12121a; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-size: 10px; position: sticky; top: 0; z-index: 2; }
 
   input.cell {
     width: 42px; background: #000; color: #00ff87; border: 1px solid #222;
@@ -327,11 +327,18 @@ const char* htmlUI = R"rawliteral(
   .btn-log {
     background: linear-gradient(135deg, #00e5ff, #0077ff); color: #fff;
     font-family: 'Orbitron', sans-serif; font-weight: 900; border: none;
-    padding: 14px 20px; font-size: 14px; border-radius: 8px; cursor: pointer;
-    width: 100%; letter-spacing: 2px; box-shadow: 0 0 20px rgba(0, 229, 255, 0.4); transition: 0.2s;
-    display: block; text-align: center; text-decoration: none; box-sizing: border-box;
+    padding: 12px 20px; font-size: 12px; border-radius: 8px; cursor: pointer;
+    width: 100%; letter-spacing: 1px; box-shadow: 0 0 15px rgba(0, 229, 255, 0.4); transition: 0.2s;
+    display: block; text-align: center; text-decoration: none; box-sizing: border-box; margin-bottom: 8px;
   }
-  .btn-log:hover { transform: scale(1.01); box-shadow: 0 0 30px rgba(0, 229, 255, 0.7); }
+  .btn-log:hover { transform: scale(1.01); box-shadow: 0 0 25px rgba(0, 229, 255, 0.7); }
+  
+  .btn-clear {
+    background: linear-gradient(135deg, #555, #222); color: #ccc;
+    font-family: 'Orbitron', sans-serif; font-weight: 700; border: 1px solid #444;
+    padding: 10px 20px; font-size: 11px; border-radius: 8px; cursor: pointer;
+    width: 100%; letter-spacing: 1px; text-align: center; text-decoration: none; box-sizing: border-box;
+  }
 </style>
 </head><body>
 
@@ -346,71 +353,162 @@ const char* htmlUI = R"rawliteral(
 <div class="container">
   <div class="timeout-warning">WIFI AUTO-SLEEP AKTIF DALAM 3 MENIT</div>
   
-  <div class="card">
-    <div class="controls-grid">
-      <div>
-        <label>SLOT MAP CUSTOM</label>
-        <select id="slotSelect" onchange="loadMap()">
-          <option value="0">MAP CUSTOM 1</option>
-          <option value="1">MAP CUSTOM 2</option>
-          <option value="2">MAP CUSTOM 3</option>
-          <option value="3">MAP CUSTOM 4</option>
-          <option value="4">MAP CUSTOM 5</option>
-        </select>
+  <!-- TAB NAVIGASI UTAMA -->
+  <div class="tab-buttons">
+    <button class="tab-btn active" id="btnTabDegree" onclick="switchMainTab('degree')">MAP 3D</button>
+    <button class="tab-btn" id="btnTabDwell" onclick="switchMainTab('dwell')">DWELL</button>
+    <button class="tab-btn" id="btnTabLogger" onclick="switchMainTab('logger')">DATA LOGGER</button>
+  </div>
+
+  <!-- SECTION TUNING (MAP & DWELL) -->
+  <div id="tuningSection">
+    <div class="card">
+      <div class="controls-grid">
+        <div>
+          <label>SLOT MAP CUSTOM</label>
+          <select id="slotSelect" onchange="loadMap()">
+            <option value="0">MAP CUSTOM 1</option>
+            <option value="1">MAP CUSTOM 2</option>
+            <option value="2">MAP CUSTOM 3</option>
+            <option value="3">MAP CUSTOM 4</option>
+            <option value="4">MAP CUSTOM 5</option>
+          </select>
+        </div>
+        <div>
+          <label>LIMIT RPM (HARD CUT)</label>
+          <input type="number" id="rpmLimit" class="cfg" value="12500" step="100">
+        </div>
       </div>
-      <div>
-        <label>LIMIT RPM (HARD CUT)</label>
-        <input type="number" id="rpmLimit" class="cfg" value="12500" step="100">
-      </div>
+    </div>
+
+    <div class="tab-buttons" style="margin-bottom: 8px;">
+      <button class="tab-btn active" id="subBtnDegree" onclick="switchSubTab('degree')">MAP DERAJAT</button>
+      <button class="tab-btn" id="subBtnDwell" onclick="switchSubTab('dwell')">DWELL PER STEP</button>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-title" id="chartTitle">GRAFIK KURVA PENGAPIAN (DEGREE VS RPM)</div>
+      <canvas id="tuningChart" style="width:100%; height:160px;"></canvas>
+    </div>
+
+    <div id="tabDegree" class="table-responsive">
+      <table>
+        <thead><tr><th>RPM/TPS</th><th>0%</th><th>25%</th><th>50%</th><th>75%</th><th>100%</th></tr></thead>
+        <tbody id="mapBody"></tbody>
+      </table>
+    </div>
+
+    <div id="tabDwell" class="table-responsive" style="display:none;">
+      <table>
+        <thead><tr><th>STEP RPM</th><th>DWELL TIME (&mu;s)</th><th>KETERANGAN</th></tr></thead>
+        <tbody id="dwellBody"></tbody>
+      </table>
+    </div>
+
+    <button class="btn-save" onclick="saveAndSend()">SIMPAN & FLASH KE ECU</button>
+  </div>
+
+  <!-- SECTION TAB KHUSUS DATA LOGGER -->
+  <div id="loggerSection" style="display:none;">
+    <div class="card" style="text-align: center;">
+      <label style="color: #00e5ff; margin-bottom: 10px;">RIWAYAT REKAMAN DATA MESIN (RAM BUFFER)</label>
+      <button class="btn-log" onclick="fetchLiveDataLog()" style="margin-bottom: 10px;">MUAT ULANG TABEL LOG</button>
+      <a href="/downloadCSV" class="btn-log">DOWNLOAD FILE CSV</a>
+      <button class="btn-clear" onclick="clearLogData()">BERSIHKAN LOG</button>
+    </div>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>Waktu (s)</th>
+            <th>RPM</th>
+            <th>TPS</th>
+            <th>Adv (&deg;)</th>
+            <th>Suhu (&deg;C)</th>
+            <th>Aki (V)</th>
+          </tr>
+        </thead>
+        <tbody id="logTableBody">
+          <tr><td colspan="6" style="color: #666;">Klik "Muat Ulang Tabel Log" untuk menampilkan data.</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
-  <div class="tab-buttons">
-    <button class="tab-btn active" id="btnTabDegree" onclick="switchTab('degree')">MAP DERAJAT (3D)</button>
-    <button class="tab-btn" id="btnTabDwell" onclick="switchTab('dwell')">DWELL PER STEP (RPM)</button>
-  </div>
-
-  <div class="chart-card">
-    <div class="chart-title" id="chartTitle">GRAFIK KURVA PENGAPIAN (DEGREE VS RPM)</div>
-    <canvas id="tuningChart" style="width:100%; height:180px;"></canvas>
-  </div>
-
-  <div id="tabDegree" class="table-responsive">
-    <table>
-      <thead><tr><th>RPM/TPS</th><th>0%</th><th>25%</th><th>50%</th><th>75%</th><th>100%</th></tr></thead>
-      <tbody id="mapBody"></tbody>
-    </table>
-  </div>
-
-  <div id="tabDwell" class="table-responsive" style="display:none;">
-    <table>
-      <thead><tr><th>STEP RPM</th><th>DWELL TIME (&mu;s)</th><th>KETERANGAN</th></tr></thead>
-      <tbody id="dwellBody"></tbody>
-    </table>
-  </div>
-
-  <button class="btn-save" onclick="saveAndSend()">SIMPAN & FLASH KE ECU</button>
-  <a href="/downloadCSV" class="btn-log">DOWNLOAD DATA LOG (.CSV)</a>
 </div>
 
 <script>
 const rpmLabels = ["1k","2k","3k","4k","5k","6k","7k","8k","9k","10k","11k","12k","13k","14k","15k"];
 
-function switchTab(tab) {
-  if (tab === 'degree') {
+function switchMainTab(tab) {
+  if (tab === 'logger') {
+    document.getElementById('tuningSection').style.display = 'none';
+    document.getElementById('loggerSection').style.display = 'block';
+    document.getElementById('btnTabDegree').classList.remove('active');
+    document.getElementById('btnTabDwell').classList.remove('active');
+    document.getElementById('btnTabLogger').classList.add('active');
+    fetchLiveDataLog(); // Otomatis muat data saat pindah ke tab logger
+  } else {
+    document.getElementById('tuningSection').style.display = 'block';
+    document.getElementById('loggerSection').style.display = 'none';
+    document.getElementById('btnTabLogger').classList.remove('active');
+    if (tab === 'degree') switchSubTab('degree');
+    else switchSubTab('dwell');
+  }
+}
+
+function switchSubTab(sub) {
+  if (sub === 'degree') {
     document.getElementById('tabDegree').style.display = 'block';
     document.getElementById('tabDwell').style.display = 'none';
-    document.getElementById('btnTabDegree').classList.add('active');
-    document.getElementById('btnTabDwell').classList.remove('active');
+    document.getElementById('subBtnDegree').classList.add('active');
+    document.getElementById('subBtnDwell').classList.remove('active');
     document.getElementById('chartTitle').innerText = "GRAFIK KURVA PENGAPIAN (DEGREE VS RPM)";
   } else {
     document.getElementById('tabDegree').style.display = 'none';
     document.getElementById('tabDwell').style.display = 'block';
-    document.getElementById('btnTabDegree').classList.remove('active');
-    document.getElementById('btnTabDwell').classList.add('active');
+    document.getElementById('subBtnDegree').classList.remove('active');
+    document.getElementById('subBtnDwell').classList.add('active');
     document.getElementById('chartTitle').innerText = "GRAFIK KURVA DWELL TIME (DWELL VS RPM)";
   }
   drawChart();
+}
+
+function fetchLiveDataLog() {
+  fetch('/getLogData').then(r => r.json()).then(data => {
+    let tbody = document.getElementById('logTableBody');
+    tbody.innerHTML = '';
+    if (!data.logs || data.logs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color: #666;">Belum ada data log (mesin belum berputar > 400 RPM).</td></tr>';
+      return;
+    }
+    // Tampilkan urutan terbaru di atas
+    let revLogs = data.logs.reverse();
+    revLogs.forEach(entry => {
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="color: #aaa;">${(entry.t / 1000).toFixed(1)}s</td>
+        <td style="color: #00ff87; font-weight: bold;">${entry.r}</td>
+        <td>${entry.p}%</td>
+        <td style="color: #00e5ff;">${(entry.a / 10).toFixed(1)}&deg;</td>
+        <td>${(entry.temp / 10).toFixed(1)}&deg;C</td>
+        <td>${(entry.batt / 10).toFixed(1)}V</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }).catch(err => {
+    alert('Gagal mengambil data log.');
+  });
+}
+
+function clearLogData() {
+  if(confirm('Hapus seluruh riwayat log di memori?')) {
+    fetch('/clearLog').then(r => r.text()).then(msg => {
+      fetchLiveDataLog();
+      alert('Log berhasil dibersihkan.');
+    });
+  }
 }
 
 function drawChart() {
@@ -536,12 +634,12 @@ window.onload = loadMap; window.onresize = drawChart;
 
 void setupWebServer() {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){ 
-    lastActivityTime = millis();
+    lastActivityTime = millis();[cite: 2]
     request->send_P(200, "text/html", htmlUI); 
   });
   
   server.on("/getMap", HTTP_GET, [](AsyncWebServerRequest *request){
-    lastActivityTime = millis();
+    lastActivityTime = millis();[cite: 2]
     uint8_t slot = request->hasParam("slot") ? request->getParam("slot")->value().toInt() : 0;
     if (slot > 4) slot = 0;
     
@@ -558,6 +656,41 @@ void setupWebServer() {
 
     String response; serializeJson(doc, response);
     request->send(200, "application/json", response);
+  });
+
+  // --- ENDPOINT JSON UNTUK TAB LIVE DATA LOGGER ---
+  server.on("/getLogData", HTTP_GET, [](AsyncWebServerRequest *request){
+    lastActivityTime = millis();
+    AsyncJsonResponse *response = new AsyncJsonResponse(false, 32768);
+    JsonObject root = response->getRoot();
+    JsonArray arr = root.createNestedArray("logs");
+    
+    portENTER_CRITICAL(&logMux);
+    uint16_t startIdx = (logCount < MAX_LOG_ENTRIES) ? 0 : logHead;
+    for (uint16_t i = 0; i < logCount; i++) {
+      uint16_t idx = (startIdx + i) % MAX_LOG_ENTRIES;
+      JsonObject entry = arr.createNestedObject();
+      entry["t"] = logBuffer[idx].timestampMs;
+      entry["r"] = logBuffer[idx].rpm;
+      entry["p"] = logBuffer[idx].tps;
+      entry["a"] = logBuffer[idx].degree10;
+      entry["temp"] = logBuffer[idx].temp10;
+      entry["batt"] = logBuffer[idx].battVolt10;
+    }
+    portEXIT_CRITICAL(&logMux);
+    
+    response->setLength();
+    request->send(response);
+  });
+
+  // --- ENDPOINT BERSIHKAN LOG ---
+  server.on("/clearLog", HTTP_GET, [](AsyncWebServerRequest *request){
+    lastActivityTime = millis();
+    portENTER_CRITICAL(&logMux);
+    logHead = 0;
+    logCount = 0;
+    portEXIT_CRITICAL(&logMux);
+    request->send(200, "text/plain", "Log Cleared");
   });
 
   // --- ENDPOINT DOWNLOAD FILE CSV DATA LOGGER ---
@@ -585,7 +718,7 @@ void setupWebServer() {
   });
 
   AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler("/saveTuning", [](AsyncWebServerRequest *request, JsonVariant &json) {
-    lastActivityTime = millis();
+    lastActivityTime = millis();[cite: 2]
     JsonObject obj = json.as<JsonObject>();
     uint8_t slot = obj["slot"].as<uint8_t>();
     if (slot > 4) slot = 0;
@@ -607,8 +740,8 @@ void setupWebServer() {
       d++;
     }
     
-    saveMapToNVS();
-    sendCommandToS3(0x02, slot);
+    saveMapToNVS();[cite: 2]
+    sendCommandToS3(0x02, slot);[cite: 2]
     request->send(200, "text/plain", "Saved & Sent");
   });
   
@@ -617,40 +750,38 @@ void setupWebServer() {
 }
 
 void setup() {
-  setCpuFrequencyMhz(80); // Turunkan clock CPU ke 80MHz agar suhu stabil
+  setCpuFrequencyMhz(80); // Turunkan clock CPU ke 80MHz agar suhu stabil[cite: 2]
   
-  Serial1.begin(250000, SERIAL_8N1, RX_PIN, TX_PIN);
+  Serial1.begin(250000, SERIAL_8N1, RX_PIN, TX_PIN);[cite: 2]
   
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP("ECU_SATRIA_FU", "kudus1234");
+  WiFi.mode(WIFI_AP_STA);[cite: 2]
+  WiFi.softAP("ECU_SATRIA_FU", "kudus1234");[cite: 2]
   
-  esp_wifi_set_max_tx_power(50);
+  esp_wifi_set_max_tx_power(50);[cite: 2]
   
-  esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);
+  esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);[cite: 2]
   if (esp_now_init() == ESP_OK) {
     esp_now_peer_info_t peerInfo = {};
     memcpy(peerInfo.peer_addr, displayMacAddress, 6);
     esp_now_add_peer(&peerInfo);
-    esp_now_register_recv_cb(OnEspNowRecv);
+    esp_now_register_recv_cb(OnEspNowRecv);[cite: 2]
   }
 
-  loadMapFromNVS();
+  loadMapFromNVS();[cite: 2]
   setupWebServer();
   
-  lastActivityTime = millis();
-  delay(1000); 
-  sendCommandToS3(0x02, 0);
+  lastActivityTime = millis();[cite: 2]
+  delay(1000); sendCommandToS3(0x02, 0);[cite: 2]
 }
 
 void loop() {
-  parseUART();
+  parseUART();[cite: 2]
   
-  // Auto-Kill WiFi & Web Server setelah 3 Menit idle untuk efisiensi daya & suhu
   if (isWifiActive && (millis() - lastActivityTime > WIFI_TIMEOUT_MS)) {
-    server.end();                 
-    WiFi.softAPdisconnect(true);  
-    isWifiActive = false;         
+    server.end();                [cite: 2]
+    WiFi.softAPdisconnect(true); [cite: 2]
+    isWifiActive = false;        [cite: 2]
   }
   
-  delay(1);
+  delay(1);[cite: 2]
 }
