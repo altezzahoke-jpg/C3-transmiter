@@ -7,6 +7,7 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 
+// --- KONFIGURASI PIN UART ESP32-C3 (TERHUBUNG KE S3 RX:19, TX:20) ---
 #define RX_PIN 6
 #define TX_PIN 7
 
@@ -44,7 +45,7 @@ struct LogEntry {
 LogEntry logBuffer[MAX_LOG_ENTRIES];
 uint16_t logHead = 0;
 uint16_t logCount = 0;
-bool bufferOverflowed = false; // Deteksi jika buffer meluber
+bool bufferOverflowed = false; 
 portMUX_TYPE logMux = portMUX_INITIALIZER_UNLOCKED;
 
 // --- DATA BAWAAN DEFAULT ---
@@ -66,10 +67,13 @@ struct CustomTuning {
   uint16_t rpmLimit;
 };
 CustomTuning customMapSlots[5];
-uint8_t currentActiveSlot = 0; // Slot aktif tersimpan
+uint8_t currentActiveSlot = 0; 
 
+// -----------------------------------------------------------------------------
+// STRUKTUR PAKET KOMUNIKASI UART (100% IDENTIK DENGAN ESP32-S3)
+// -----------------------------------------------------------------------------
 struct __attribute__((packed)) TelemetryData {
-  uint16_t header;     
+  uint16_t header;     // 0xAA55
   uint16_t rpm;
   uint8_t  tps;        
   int16_t  degree10;   
@@ -78,8 +82,10 @@ struct __attribute__((packed)) TelemetryData {
   uint8_t  mode;
   uint8_t  fuel;
   uint8_t  state;
+  uint8_t  ackStatus;  // Disinkronkan dengan S3
+  uint16_t faultCode;  // Disinkronkan dengan S3 (Bitmask error hardware)
   uint16_t crc16;
-};
+};                     // Total: 19 Bytes
 
 struct __attribute__((packed)) CommandData {
   uint16_t header;     
@@ -88,17 +94,17 @@ struct __attribute__((packed)) CommandData {
 };
 
 struct __attribute__((packed)) CommandPacketToS3 {
-  uint16_t header;       
-  uint8_t  cmdType;      
+  uint16_t header;                                  // 0x55CC
+  uint8_t  cmdType;                                 // 0x01: Mode, 0x02: RAM Map, 0x03: Save NVS
   uint8_t  slotOrMode;   
-  int16_t  mapData[NUM_RPM_POINTS][NUM_TPS_POINTS]; 
-  uint16_t dwellData[NUM_RPM_POINTS]; 
-  uint16_t rpmLimit;     
-  uint16_t crc16;      
-};
+  int16_t  mapData[NUM_RPM_POINTS][NUM_TPS_POINTS]; // 150 Bytes
+  uint16_t dwellData[NUM_RPM_POINTS];               // 30 Bytes
+  uint16_t rpmLimit;                                // 2 Bytes
+  uint16_t crc16;                                   // 2 Bytes
+};                                                  // Total: 188 Bytes
 
 portMUX_TYPE dataMux = portMUX_INITIALIZER_UNLOCKED;
-TelemetryData currentTelemetry = {0xAA55, 0, 0, 100, 300, 126, 0, 0, 0, 0};
+TelemetryData currentTelemetry = {0xAA55, 0, 0, 100, 300, 126, 0, 0, 0, 0, 0, 0};
 
 uint16_t calculateCRC16(const uint8_t *data, size_t len) {
   uint16_t crc = 0xFFFF;
@@ -126,7 +132,7 @@ void pushToLog(const TelemetryData *pkt) {
   if (logCount < MAX_LOG_ENTRIES) {
     logCount++;
   } else {
-    bufferOverflowed = true; // Tandai jika buffer meluber
+    bufferOverflowed = true;
   }
   portEXIT_CRITICAL(&logMux);
 }
@@ -137,7 +143,7 @@ void sendCommandToS3(uint8_t cmdType, uint8_t slot) {
   cmd.cmdType = cmdType;
   cmd.slotOrMode = slot;
   
-  if (cmdType == 0x02 && slot < 5) {
+  if ((cmdType == 0x02 || cmdType == 0x03) && slot < 5) {
     memcpy(cmd.mapData, customMapSlots[slot].mapData, sizeof(cmd.mapData));
     memcpy(cmd.dwellData, customMapSlots[slot].dwellData, sizeof(cmd.dwellData));
     cmd.rpmLimit = customMapSlots[slot].rpmLimit;
@@ -170,7 +176,7 @@ void parseUART() {
         memcpy(&currentTelemetry, pkt, sizeof(TelemetryData));
         portEXIT_CRITICAL(&dataMux);
         
-        lastUartRxTime = millis(); // Reset UART timeout
+        lastUartRxTime = millis();
         isEcuConnected = true;
         
         pushToLog(pkt); 
@@ -237,6 +243,8 @@ const char* htmlUI = R"rawliteral(
   .ecu-offline { color: #ff0055; font-weight: bold; text-shadow: 0 0 5px #ff0055; animation: blink 1s infinite; }
   @keyframes blink { 50% { opacity: 0.3; } }
 
+  .fault-banner { background: rgba(255, 0, 85, 0.2); border: 1px solid #ff0055; color: #ff3366; padding: 8px; border-radius: 6px; margin-bottom: 10px; font-family: 'Orbitron', sans-serif; font-size: 11px; text-align: center; display: none; font-weight: bold; }
+
   .container { max-width: 650px; margin: 0 auto; padding: 10px; }
   .card { background: rgba(20, 20, 25, 0.85); border: 1px solid rgba(0, 255, 136, 0.3); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
   .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -274,11 +282,12 @@ const char* htmlUI = R"rawliteral(
 <div class="header"><h1>TEAM PATAS KUDUS</h1></div>
 <div class="container">
   
-  <!-- BARIS STATUS SISTEM & KONEKSI UART -->
   <div class="status-bar">
     <span>KONEKSI ECU (UART): <span id="ecuStatus" class="ecu-offline">MENGECEK...</span></span>
     <span>LIVE RPM: <span id="liveRpm" style="color:#00ff87;">0</span></span>
   </div>
+
+  <div id="faultBanner" class="fault-banner"></div>
 
   <div class="tab-buttons">
     <button class="tab-btn active" id="btnTabDegree" onclick="switchMainTab('degree')">MAP 3D</button>
@@ -403,11 +412,11 @@ function switchSubTab(sub) {
   drawChart();
 }
 
-// AMBIL STATUS LIVE ECU & TRACKING DERAJAT AKTIF
 function pollLiveStatus() {
   fetch('/getLiveStatus').then(r => r.json()).then(data => {
     let statusEl = document.getElementById('ecuStatus');
     let rpmEl = document.getElementById('liveRpm');
+    let faultEl = document.getElementById('faultBanner');
     
     if (data.ecuOnline) {
       statusEl.innerText = "ONLINE (S3 CONNECTED)";
@@ -418,8 +427,19 @@ function pollLiveStatus() {
     }
     
     rpmEl.innerText = data.rpm;
+
+    if (data.faultCode && data.faultCode !== 0) {
+      let msgs = [];
+      if (data.faultCode & 1) msgs.push("SENSOR TPS ERROR");
+      if (data.faultCode & 2) msgs.push("SENSOR SUHU NTC ERROR");
+      if (data.faultCode & 4) msgs.push("AKI LOW (<10V)");
+      if (data.faultCode & 8) msgs.push("OVERCHARGE / KIPROK (>16V)");
+      faultEl.innerText = "⚠️ FAULT DETECTED (LIMP HOME): " + msgs.join(" | ");
+      faultEl.style.display = "block";
+    } else {
+      faultEl.style.display = "none";
+    }
     
-    // Live Active Cell Tracking pada Map 3D
     document.querySelectorAll('.cell-active').forEach(c => c.classList.remove('cell-active'));
     if (data.rpm >= 1000) {
       let rIdx = Math.min(14, Math.floor((data.rpm - 1000) / 1000));
@@ -429,7 +449,7 @@ function pollLiveStatus() {
     }
   }).catch(e => {});
 }
-setInterval(pollLiveStatus, 500); // Poll setiap 500ms
+setInterval(pollLiveStatus, 500);
 
 function fetchLiveDataLog() {
   fetch('/getLogData').then(r => r.json()).then(data => {
@@ -611,7 +631,6 @@ function saveAndSend() {
 }
 
 window.onload = function() {
-  // Sync slot aktif dari NVS saat pertama kali halaman dimuat
   fetch('/getLiveStatus').then(r => r.json()).then(d => {
     document.getElementById('slotSelect').value = d.activeSlot;
     loadMap();
@@ -628,7 +647,6 @@ void setupWebServer() {
     request->send_P(200, "text/html", htmlUI); 
   });
   
-  // ENDPOINT AMAN BACA STATUS TELEMETRI LIVE (TERPROTEKSI MULTITASK MUX)
   server.on("/getLiveStatus", HTTP_GET, [](AsyncWebServerRequest *request){
     lastActivityTime = millis();
     JsonDocument doc;
@@ -639,6 +657,8 @@ void setupWebServer() {
     doc["deg"] = currentTelemetry.degree10;
     doc["temp"] = currentTelemetry.temp10;
     doc["batt"] = currentTelemetry.battVolt10;
+    doc["faultCode"] = currentTelemetry.faultCode;
+    doc["ackStatus"] = currentTelemetry.ackStatus;
     portEXIT_CRITICAL(&dataMux);
 
     doc["ecuOnline"] = isEcuConnected;
@@ -670,7 +690,7 @@ void setupWebServer() {
     lastActivityTime = millis();
     AsyncResponseStream *response = request->beginResponseStream("application/json");
     JsonDocument doc;
-    doc["overflow"] = bufferOverflowed; // Kirim status overflow
+    doc["overflow"] = bufferOverflowed;
     
     JsonArray arr = doc["logs"].to<JsonArray>();
     portENTER_CRITICAL(&logMux);
@@ -723,7 +743,7 @@ void setupWebServer() {
     uint8_t slot = obj["slot"].as<uint8_t>();
     if (slot > 4) slot = 0;
     
-    currentActiveSlot = slot; // Update slot aktif yang baru
+    currentActiveSlot = slot;
     customMapSlots[slot].rpmLimit = obj["rpmLimit"].as<uint16_t>();
     
     JsonArray arrMap = obj["map"].as<JsonArray>(); int r = 0;
@@ -741,7 +761,7 @@ void setupWebServer() {
       d++;
     }
     saveMapToNVS();
-    sendCommandToS3(0x02, slot);
+    sendCommandToS3(0x03, slot); // 0x03 = Update RAM & Simpan permanen ke NVS S3
     request->send(200, "text/plain", "Saved & Sent");
     lastActivityTime = millis();
   });
@@ -773,14 +793,12 @@ void setup() {
   lastActivityTime = millis();
   delay(1000); 
   
-  // Kirimkan slot map aktif terakhir yang tersimpan di NVS ke ESP32-S3
   sendCommandToS3(0x02, currentActiveSlot);
 }
 
 void loop() {
   parseUART();
   
-  // DETEKSI TIMEOUT UART (FAILSAFE ECU DISCONNECTED)
   if (millis() - lastUartRxTime > UART_TIMEOUT_MS) {
     isEcuConnected = false;
     portENTER_CRITICAL(&dataMux);
@@ -788,7 +806,6 @@ void loop() {
     portEXIT_CRITICAL(&dataMux);
   }
 
-  // AUTO-SLEEP WIFI 5 MENIT IDLE (ESP-NOW TETAP ALIVE)
   if (isWifiActive && (millis() - lastActivityTime > WIFI_TIMEOUT_MS)) {
     server.end();                 
     WiFi.softAPdisconnect(true);  
