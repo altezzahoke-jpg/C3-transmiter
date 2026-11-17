@@ -11,9 +11,9 @@
 #define RX_PIN 6
 #define TX_PIN 7
 
-// --- CUSTOM MAC ADDRESS CONFIGURATION ---
-uint8_t transmitterMac[]    = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC}; // MAC Custom untuk C3 Telemetri[cite: 3]
-uint8_t displayMacAddress[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBD}; // MAC Target C3 LCD Dashboard
+// --- MAC ADDRESS TRANSMITTER & DISPLAY ---
+uint8_t transmitterMac[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
+uint8_t displayMacAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 #define NUM_RPM_POINTS 15
 #define NUM_TPS_POINTS 5
@@ -294,13 +294,50 @@ const char* htmlUI = R"rawliteral(
 
   <div id="faultBanner" class="fault-banner"></div>
 
+  <!-- MENU UTAMA / TAB NAVIGASI -->
   <div class="tab-buttons">
-    <button class="tab-btn active" id="btnTabDegree" onclick="switchMainTab('degree')">MAP 3D</button>
+    <button class="tab-btn active" id="btnTabLive" onclick="switchMainTab('live')">LIVE MONITOR</button>
+    <button class="tab-btn" id="btnTabDegree" onclick="switchMainTab('degree')">MAP 3D</button>
     <button class="tab-btn" id="btnTabDwell" onclick="switchMainTab('dwell')">DWELL</button>
-    <button class="tab-btn" id="btnTabLogger" onclick="switchMainTab('logger')">DATA LOGGER</button>
+    <button class="tab-btn" id="btnTabLogger" onclick="switchMainTab('logger')">LOGGER</button>
   </div>
 
-  <div id="tuningSection">
+  <!-- 1. TAB KHUSUS LIVE MONITORING & RUNNING CHART -->
+  <div id="liveSection">
+    <div class="card" style="border-color: #00e5ff;">
+      <div class="chart-title">LIVE ENGINE TELEMETRY GAUGE</div>
+      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; text-align: center; margin-bottom: 12px;">
+        <div style="background:#050508; padding:8px; border-radius:6px; border:1px solid #222;">
+          <span style="font-size:9px; color:#888;">ADV. DEGREE</span>
+          <div id="liveDeg" style="font-family:'Orbitron'; font-size:18px; color:#00ff87;">0.0°</div>
+        </div>
+        <div style="background:#050508; padding:8px; border-radius:6px; border:1px solid #222;">
+          <span style="font-size:9px; color:#888;">TPS POSITION</span>
+          <div id="liveTps" style="font-family:'Orbitron'; font-size:18px; color:#00e5ff;">0%</div>
+        </div>
+        <div style="background:#050508; padding:8px; border-radius:6px; border:1px solid #222;">
+          <span style="font-size:9px; color:#888;">SUHU NTC</span>
+          <div id="liveTemp" style="font-family:'Orbitron'; font-size:18px; color:#ffea00;">0°C</div>
+        </div>
+        <div style="background:#050508; padding:8px; border-radius:6px; border:1px solid #222;">
+          <span style="font-size:9px; color:#888;">BATT VOLTAGE</span>
+          <div id="liveBatt" style="font-family:'Orbitron'; font-size:18px; color:#ff0055;">0.0V</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-title">REAL-TIME ROLLING CHART (RPM & ADVANCE)</div>
+      <canvas id="realtimeChart" style="width:100%; height:180px;"></canvas>
+      <div style="display:flex; justify-content:space-around; font-size:10px; font-family:'Orbitron'; margin-top:6px; color:#aaa;">
+        <span style="color:#00ff87;">■ RPM (Skala Max 15k)</span>
+        <span style="color:#00e5ff;">■ ADVANCE DEG (Skala Max 45°)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. TAB TUNING (MAP 3D & DWELL) -->
+  <div id="tuningSection" style="display:none;">
     <div class="card">
       <div class="controls-grid">
         <div>
@@ -355,6 +392,7 @@ const char* htmlUI = R"rawliteral(
     <button class="btn-save" onclick="saveAndSend()">SIMPAN & FLASH KE ECU</button>
   </div>
 
+  <!-- 3. TAB DATA LOGGER -->
   <div id="loggerSection" style="display:none;">
     <div class="card" style="text-align: center;">
       <label style="color: #00e5ff; margin-bottom: 5px;">RIWAYAT REKAMAN DATA MESIN</label>
@@ -382,21 +420,38 @@ const char* htmlUI = R"rawliteral(
 <script>
 const rpmLabels = ["1k","2k","3k","4k","5k","6k","7k","8k","9k","10k","11k","12k","13k","14k","15k"];
 let lastFocusedCell = null;
+let rtHistoryRpm = [];
+let rtHistoryDeg = [];
+const maxHistoryPoints = 60;
 
 function switchMainTab(tab) {
-  if (tab === 'logger') {
-    document.getElementById('tuningSection').style.display = 'none';
+  // Sembunyikan semua section utama
+  document.getElementById('liveSection').style.display = 'none';
+  document.getElementById('tuningSection').style.display = 'none';
+  document.getElementById('loggerSection').style.display = 'none';
+  
+  // Nonaktifkan semua tombol tab utama
+  document.getElementById('btnTabLive').classList.remove('active');
+  document.getElementById('btnTabDegree').classList.remove('active');
+  document.getElementById('btnTabDwell').classList.remove('active');
+  document.getElementById('btnTabLogger').classList.remove('active');
+
+  if (tab === 'live') {
+    document.getElementById('liveSection').style.display = 'block';
+    document.getElementById('btnTabLive').classList.add('active');
+    drawRealtimeChart();
+  } else if (tab === 'degree') {
+    document.getElementById('tuningSection').style.display = 'block';
+    document.getElementById('btnTabDegree').classList.add('active');
+    switchSubTab('degree');
+  } else if (tab === 'dwell') {
+    document.getElementById('tuningSection').style.display = 'block';
+    document.getElementById('btnTabDwell').classList.add('active');
+    switchSubTab('dwell');
+  } else if (tab === 'logger') {
     document.getElementById('loggerSection').style.display = 'block';
-    document.getElementById('btnTabDegree').classList.remove('active');
-    document.getElementById('btnTabDwell').classList.remove('active');
     document.getElementById('btnTabLogger').classList.add('active');
     fetchLiveDataLog(); 
-  } else {
-    document.getElementById('tuningSection').style.display = 'block';
-    document.getElementById('loggerSection').style.display = 'none';
-    document.getElementById('btnTabLogger').classList.remove('active');
-    if (tab === 'degree') switchSubTab('degree');
-    else switchSubTab('dwell');
   }
 }
 
@@ -433,6 +488,25 @@ function pollLiveStatus() {
     
     rpmEl.innerText = data.rpm;
 
+    // Update Widget Live Engine (Tab Live)
+    document.getElementById('liveDeg').innerText = (data.deg / 10).toFixed(1) + '°';
+    document.getElementById('liveTps').innerText = data.tps + '%';
+    document.getElementById('liveTemp').innerText = (data.temp / 10).toFixed(1) + '°C';
+    document.getElementById('liveBatt').innerText = (data.batt / 10).toFixed(1) + 'V';
+
+    // Push data ke array history untuk grafik berjalan
+    rtHistoryRpm.push(data.rpm);
+    rtHistoryDeg.push(data.deg / 10);
+    if (rtHistoryRpm.length > maxHistoryPoints) {
+      rtHistoryRpm.shift();
+      rtHistoryDeg.shift();
+    }
+    
+    // Refresh chart live jika sedang dibuka di tab live
+    if (document.getElementById('liveSection').style.display !== 'none') {
+      drawRealtimeChart();
+    }
+
     if (data.faultCode && data.faultCode !== 0) {
       let msgs = [];
       if (data.faultCode & 1) msgs.push("SENSOR TPS ERROR");
@@ -444,17 +518,49 @@ function pollLiveStatus() {
     } else {
       faultEl.style.display = "none";
     }
-    
-    document.querySelectorAll('.cell-active').forEach(c => c.classList.remove('cell-active'));
-    if (data.rpm >= 1000) {
-      let rIdx = Math.min(14, Math.floor((data.rpm - 1000) / 1000));
-      let tIdx = Math.min(4, Math.floor(data.tps / 25));
-      let activeCell = document.getElementById(`c_${rIdx}_${tIdx}`);
-      if (activeCell) activeCell.classList.add('cell-active');
-    }
   }).catch(e => {});
 }
 setInterval(pollLiveStatus, 500);
+
+function drawRealtimeChart() {
+  const canvas = document.getElementById('realtimeChart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
+  const w = canvas.width; const h = canvas.height;
+  
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = '#1a1a24'; ctx.lineWidth = 1;
+  
+  for(let y=0; y<h; y+=h/4) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  if (rtHistoryRpm.length < 2) return;
+
+  let stepX = w / (maxHistoryPoints - 1);
+
+  // Garis RPM (Hijau)
+  ctx.strokeStyle = '#00ff87'; ctx.lineWidth = 2; ctx.beginPath();
+  for(let i = 0; i < rtHistoryRpm.length; i++) {
+    let x = i * stepX;
+    let y = h - ((rtHistoryRpm[i] / 15000) * h);
+    if (y < 0) y = 0; if (y > h) y = h;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Garis Advance Degree (Cyan)
+  ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 1.5; ctx.beginPath();
+  for(let i = 0; i < rtHistoryDeg.length; i++) {
+    let x = i * stepX;
+    let y = h - ((rtHistoryDeg[i] / 45.0) * h);
+    if (y < 0) y = 0; if (y > h) y = h;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
 
 function fetchLiveDataLog() {
   fetch('/getLogData').then(r => r.json()).then(data => {
@@ -641,7 +747,10 @@ window.onload = function() {
     loadMap();
   }).catch(e => loadMap());
 };
-window.onresize = drawChart;
+window.onresize = function() {
+  drawRealtimeChart();
+  drawChart();
+};
 </script>
 </body></html>
 )rawliteral";
@@ -779,12 +888,11 @@ void setup() {
   setCpuFrequencyMhz(80); 
   Serial1.begin(250000, SERIAL_8N1, RX_PIN, TX_PIN);
   
-  // Inisialisasi Wi-Fi AP+STA dan set Custom MAC untuk Telemetri[cite: 3]
   WiFi.mode(WIFI_AP_STA);
-  esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);
   WiFi.softAP("ECU_SATRIA_FU", "kudus1234", 1); 
   esp_wifi_set_max_tx_power(50);
   
+  esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);
   if (esp_now_init() == ESP_OK) {
     esp_now_register_send_cb(OnEspNowSent);
     esp_now_register_recv_cb(OnEspNowRecv);
