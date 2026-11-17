@@ -7,13 +7,13 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 
-// --- KONFIGURASI PIN UART ESP32-C3 (TERHUBUNG KE S3 RX:19, TX:20) ---
+// --- KONFIGURASI PIN UART ESP32-C3 (TERHUBUNG KE S3) ---
 #define RX_PIN 6
 #define TX_PIN 7
 
-// --- MAC ADDRESS TRANSMITTER & DISPLAY ---
-uint8_t transmitterMac[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
-uint8_t displayMacAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+// --- CUSTOM MAC ADDRESS CONFIGURATION ---
+uint8_t transmitterMac[]    = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC}; // MAC Custom untuk C3 Telemetri[cite: 3]
+uint8_t displayMacAddress[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBD}; // MAC Target C3 LCD Dashboard
 
 #define NUM_RPM_POINTS 15
 #define NUM_TPS_POINTS 5
@@ -22,13 +22,16 @@ AsyncWebServer server(80);
 
 // --- VARIABEL EFISIENSI & TIMEOUT WIFI (5 MENIT) ---
 unsigned long lastActivityTime = 0;
-const unsigned long WIFI_TIMEOUT_MS = 300000; // 5 Menit (300.000 ms)
+const unsigned long WIFI_TIMEOUT_MS = 300000; 
 bool isWifiActive = true;
 
-// --- STATUS KONEKSI UART & FAILSAFE ---
+// --- STATUS KONEKSI UART & SINKRONISASI ---
 unsigned long lastUartRxTime = 0;
-const unsigned long UART_TIMEOUT_MS = 2000; // 2 Detik Timeout
+const unsigned long UART_TIMEOUT_MS = 2000;
 bool isEcuConnected = false;
+bool initialSyncDone = false;
+unsigned long lastSyncRetryTime = 0;
+uint8_t syncRetryCount = 0;
 
 // --- DATA LOGGER CONFIGURATION (RAM RING BUFFER) ---
 #define MAX_LOG_ENTRIES 800
@@ -69,9 +72,7 @@ struct CustomTuning {
 CustomTuning customMapSlots[5];
 uint8_t currentActiveSlot = 0; 
 
-// -----------------------------------------------------------------------------
-// STRUKTUR PAKET KOMUNIKASI UART (100% IDENTIK DENGAN ESP32-S3)
-// -----------------------------------------------------------------------------
+// --- STRUKTUR PAKET KOMUNIKASI ---
 struct __attribute__((packed)) TelemetryData {
   uint16_t header;     // 0xAA55
   uint16_t rpm;
@@ -82,13 +83,13 @@ struct __attribute__((packed)) TelemetryData {
   uint8_t  mode;
   uint8_t  fuel;
   uint8_t  state;
-  uint8_t  ackStatus;  // Disinkronkan dengan S3
-  uint16_t faultCode;  // Disinkronkan dengan S3 (Bitmask error hardware)
+  uint8_t  ackStatus;  
+  uint16_t faultCode;  
   uint16_t crc16;
-};                     // Total: 19 Bytes
+};
 
 struct __attribute__((packed)) CommandData {
-  uint16_t header;     
+  uint16_t header;     // 0xCC55
   uint8_t requestedMode;
   uint16_t crc16;
 };
@@ -97,11 +98,11 @@ struct __attribute__((packed)) CommandPacketToS3 {
   uint16_t header;                                  // 0x55CC
   uint8_t  cmdType;                                 // 0x01: Mode, 0x02: RAM Map, 0x03: Save NVS
   uint8_t  slotOrMode;   
-  int16_t  mapData[NUM_RPM_POINTS][NUM_TPS_POINTS]; // 150 Bytes
-  uint16_t dwellData[NUM_RPM_POINTS];               // 30 Bytes
-  uint16_t rpmLimit;                                // 2 Bytes
-  uint16_t crc16;                                   // 2 Bytes
-};                                                  // Total: 188 Bytes
+  int16_t  mapData[NUM_RPM_POINTS][NUM_TPS_POINTS]; 
+  uint16_t dwellData[NUM_RPM_POINTS];               
+  uint16_t rpmLimit;                                
+  uint16_t crc16;                                   
+};
 
 portMUX_TYPE dataMux = portMUX_INITIALIZER_UNLOCKED;
 TelemetryData currentTelemetry = {0xAA55, 0, 0, 100, 300, 126, 0, 0, 0, 0, 0, 0};
@@ -137,16 +138,16 @@ void pushToLog(const TelemetryData *pkt) {
   portEXIT_CRITICAL(&logMux);
 }
 
-void sendCommandToS3(uint8_t cmdType, uint8_t slot) {
+void sendCommandToS3(uint8_t cmdType, uint8_t slotOrMode) {
   CommandPacketToS3 cmd;
   cmd.header = 0x55CC;
   cmd.cmdType = cmdType;
-  cmd.slotOrMode = slot;
+  cmd.slotOrMode = slotOrMode;
   
-  if ((cmdType == 0x02 || cmdType == 0x03) && slot < 5) {
-    memcpy(cmd.mapData, customMapSlots[slot].mapData, sizeof(cmd.mapData));
-    memcpy(cmd.dwellData, customMapSlots[slot].dwellData, sizeof(cmd.dwellData));
-    cmd.rpmLimit = customMapSlots[slot].rpmLimit;
+  if ((cmdType == 0x02 || cmdType == 0x03) && slotOrMode < 5) {
+    memcpy(cmd.mapData, customMapSlots[slotOrMode].mapData, sizeof(cmd.mapData));
+    memcpy(cmd.dwellData, customMapSlots[slotOrMode].dwellData, sizeof(cmd.dwellData));
+    cmd.rpmLimit = customMapSlots[slotOrMode].rpmLimit;
   } else {
     memset(cmd.mapData, 0, sizeof(cmd.mapData)); 
     memcpy(cmd.dwellData, defaultDwellPerRPM, sizeof(defaultDwellPerRPM));
@@ -177,7 +178,16 @@ void parseUART() {
         portEXIT_CRITICAL(&dataMux);
         
         lastUartRxTime = millis();
-        isEcuConnected = true;
+        if (!isEcuConnected) {
+          isEcuConnected = true;
+          initialSyncDone = false;
+          syncRetryCount = 0;
+          lastSyncRetryTime = 0;
+        }
+        
+        if (!initialSyncDone && syncRetryCount > 0 && pkt->ackStatus == 1) {
+          initialSyncDone = true;
+        }
         
         pushToLog(pkt); 
         esp_now_send(displayMacAddress, rxBuffer, sizeof(TelemetryData));
@@ -188,13 +198,16 @@ void parseUART() {
 }
 
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+void OnEspNowSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {}
 void OnEspNowRecv(const esp_now_recv_info_t * esp_now_info, const uint8_t *incomingData, int len) {
 #else
+void OnEspNowSent(const uint8_t *mac_addr, esp_now_send_status_t status) {}
 void OnEspNowRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 #endif
   if (len == sizeof(CommandData)) {
     CommandData *cmd = (CommandData*)incomingData;
-    if (cmd->header == 0xCC55 && cmd->crc16 == calculateCRC16(incomingData, sizeof(CommandData) - sizeof(uint16_t))) {
+    uint16_t calcCrc = calculateCRC16(incomingData, sizeof(CommandData) - sizeof(uint16_t));
+    if (cmd->header == 0xCC55 && cmd->crc16 == calcCrc) {
       sendCommandToS3(0x01, cmd->requestedMode); 
     }
   }
@@ -237,14 +250,11 @@ const char* htmlUI = R"rawliteral(
   @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
   .header { text-align: center; padding: 15px 10px 5px 10px; }
   .header h1 { font-family: 'Orbitron', sans-serif; font-size: 24px; margin: 0; color: #fff; text-shadow: 0 0 10px #00ff87; }
-  
   .status-bar { display: flex; justify-content: space-between; align-items: center; background: #111; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; font-family: 'Orbitron'; font-size: 11px; border: 1px solid #222; }
   .ecu-online { color: #00ff87; font-weight: bold; text-shadow: 0 0 5px #00ff87; }
   .ecu-offline { color: #ff0055; font-weight: bold; text-shadow: 0 0 5px #ff0055; animation: blink 1s infinite; }
   @keyframes blink { 50% { opacity: 0.3; } }
-
   .fault-banner { background: rgba(255, 0, 85, 0.2); border: 1px solid #ff0055; color: #ff3366; padding: 8px; border-radius: 6px; margin-bottom: 10px; font-family: 'Orbitron', sans-serif; font-size: 11px; text-align: center; display: none; font-weight: bold; }
-
   .container { max-width: 650px; margin: 0 auto; padding: 10px; }
   .card { background: rgba(20, 20, 25, 0.85); border: 1px solid rgba(0, 255, 136, 0.3); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
   .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -259,19 +269,14 @@ const char* htmlUI = R"rawliteral(
   table { width: 100%; border-collapse: collapse; background: #08080c; }
   th, td { border: 1px solid #1a1a24; padding: 6px 4px; text-align: center; font-size: 12px; }
   th { background: #12121a; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-size: 10px; position: sticky; top: 0; z-index: 2; }
-  
   input.cell { width: 42px; background: #000; color: #00ff87; border: 1px solid #222; text-align: center; padding: 5px 1px; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 14px; border-radius: 4px; transition: 0.2s; }
   input.cell.cell-drop { background: #550011 !important; color: #ff3366 !important; border-color: #ff0055 !important; box-shadow: 0 0 8px #ff0055; }
   input.cell.cell-active { background: #00ff87 !important; color: #000 !important; font-weight: 900; box-shadow: 0 0 12px #00ff87; }
-  
   input.dwell-cell { color: #00e5ff; width: 75px; }
-  
   .quick-adj-bar { display: flex; gap: 10px; margin-bottom: 12px; background: #111; padding: 8px; border-radius: 8px; border: 1px solid #222; align-items: center; justify-content: space-around; }
   .btn-adj { background: #222; border: 1px solid #00e5ff; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-weight: bold; font-size: 14px; padding: 6px 16px; border-radius: 6px; cursor: pointer; }
   .btn-adj:active { background: #00e5ff; color: #000; }
-  
   .tr-alert { background: rgba(255, 0, 85, 0.25) !important; color: #ff3366 !important; font-weight: bold; }
-  
   .btn-save { background: linear-gradient(135deg, #ff0055, #ff5500); color: #fff; font-family: 'Orbitron', sans-serif; font-weight: 900; border: none; padding: 14px 20px; font-size: 14px; border-radius: 8px; cursor: pointer; width: 100%; letter-spacing: 2px; margin-bottom: 10px; text-transform: uppercase; }
   .btn-log { background: linear-gradient(135deg, #00e5ff, #0077ff); color: #fff; font-family: 'Orbitron', sans-serif; font-weight: 900; border: none; padding: 12px 20px; font-size: 12px; border-radius: 8px; cursor: pointer; width: 100%; display: block; text-align: center; text-decoration: none; box-sizing: border-box; margin-bottom: 8px; }
   .btn-clear { background: #333; color: #ccc; font-family: 'Orbitron', sans-serif; font-weight: 700; border: 1px solid #444; padding: 10px 20px; font-size: 11px; border-radius: 8px; cursor: pointer; width: 100%; text-align: center; box-sizing: border-box; }
@@ -761,7 +766,7 @@ void setupWebServer() {
       d++;
     }
     saveMapToNVS();
-    sendCommandToS3(0x03, slot); // 0x03 = Update RAM & Simpan permanen ke NVS S3
+    sendCommandToS3(0x03, slot); 
     request->send(200, "text/plain", "Saved & Sent");
     lastActivityTime = millis();
   });
@@ -774,33 +779,47 @@ void setup() {
   setCpuFrequencyMhz(80); 
   Serial1.begin(250000, SERIAL_8N1, RX_PIN, TX_PIN);
   
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP("ECU_SATRIA_FU", "kudus1234");
+  // Inisialisasi Wi-Fi AP+STA dan set Custom MAC untuk Telemetri[cite: 3]
+  WiFi.mode(WIFI_AP_STA);
+  esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);
+  WiFi.softAP("ECU_SATRIA_FU", "kudus1234", 1); 
   esp_wifi_set_max_tx_power(50);
   
-  WiFi.enableSTA(true);
-  esp_wifi_set_mac(WIFI_IF_STA, transmitterMac);
   if (esp_now_init() == ESP_OK) {
+    esp_now_register_send_cb(OnEspNowSent);
+    esp_now_register_recv_cb(OnEspNowRecv);
     esp_now_peer_info_t peerInfo = {};
     memcpy(peerInfo.peer_addr, displayMacAddress, 6);
+    peerInfo.channel = 1;
+    peerInfo.encrypt = false;
     esp_now_add_peer(&peerInfo);
-    esp_now_register_recv_cb(OnEspNowRecv);
   }
 
   loadMapFromNVS();
   setupWebServer();
   
   lastActivityTime = millis();
-  delay(1000); 
-  
-  sendCommandToS3(0x02, currentActiveSlot);
 }
 
 void loop() {
   parseUART();
   
+  if (isEcuConnected && !initialSyncDone) {
+    if (millis() - lastSyncRetryTime > 500) {
+      sendCommandToS3(0x02, currentActiveSlot);
+      lastSyncRetryTime = millis();
+      syncRetryCount++;
+      
+      if (syncRetryCount >= 10) {
+        initialSyncDone = true;
+      }
+    }
+  }
+
   if (millis() - lastUartRxTime > UART_TIMEOUT_MS) {
     isEcuConnected = false;
+    initialSyncDone = false;
+    syncRetryCount = 0;
     portENTER_CRITICAL(&dataMux);
     currentTelemetry.rpm = 0;
     portEXIT_CRITICAL(&dataMux);
@@ -809,6 +828,10 @@ void loop() {
   if (isWifiActive && (millis() - lastActivityTime > WIFI_TIMEOUT_MS)) {
     server.end();                 
     WiFi.softAPdisconnect(true);  
+    WiFi.mode(WIFI_STA);
+    esp_wifi_set_promiscuous(true);
+    esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+    esp_wifi_set_promiscuous(false);
     isWifiActive = false;         
   }
   
