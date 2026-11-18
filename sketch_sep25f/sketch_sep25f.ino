@@ -8,8 +8,8 @@
 #include <Preferences.h>
 
 // --- KONFIGURASI PIN UART ESP32-C3 (SESUAI JALUR PCB) ---
-#define RX_PIN 7  // Terhubung ke Pin 20 (TX_TELEMETRY) di ESP32-S3 ECU
-#define TX_PIN 6  // Terhubung ke Pin 19 (RX_TELEMETRY) di ESP32-S3 ECU
+#define RX_PIN 7  // Terhubung ke Pin 20 (TX_TELEMETRY) di ESP32-S3 ECU[cite: 1, 2]
+#define TX_PIN 6  // Terhubung ke Pin 19 (RX_TELEMETRY) di ESP32-S3 ECU[cite: 1, 2]
 
 // --- MAC ADDRESS TRANSMITTER & DISPLAY ---
 uint8_t transmitterMac[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
@@ -238,7 +238,10 @@ void saveMapToNVS() {
 }
 
 const char* htmlUI = R"rawliteral(
-<!DOCTYPE html><html><head>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>PATAS KUDUS — S3 TCI TELEMETRY PRO</title>
 <style>
@@ -246,8 +249,8 @@ const char* htmlUI = R"rawliteral(
   :root {
     --bg-dark: #06070a;
     --bg-panel: #0e1118;
-    --bg-glass: rgba(18, 22, 32, 0.72);
-    --border-subtle: rgba(255, 255, 255, 0.07);
+    --bg-glass: rgba(18, 22, 32, 0.75);
+    --border-subtle: rgba(255, 255, 255, 0.08);
     --accent-cyan: #00f0ff;
     --accent-green: #00ff88;
     --accent-amber: #ffb800;
@@ -260,46 +263,76 @@ const char* htmlUI = R"rawliteral(
     font-family: 'Chakra Petch', sans-serif;
     background-color: var(--bg-dark);
     background-image: 
-      radial-gradient(circle at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 55%),
-      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      radial-gradient(circle at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 60%),
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
     background-size: 100% 100%, 24px 24px, 24px 24px;
     color: var(--text-primary);
     margin: 0; padding: 0; overflow-x: hidden;
   }
 
+  /* Animated Ticker Marquee */
+  .marquee-strip {
+    background: linear-gradient(90deg, #ff1e56, #00f0ff, #00ff88, #ff1e56);
+    background-size: 300% 300%;
+    animation: gradientShift 8s ease infinite;
+    padding: 2px 0;
+  }
+  @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+  .marquee-inner { background: #000; overflow: hidden; white-space: nowrap; padding: 4px 0; }
+  .marquee-text {
+    display: inline-block; font-family: 'Orbitron', sans-serif; font-size: 11px; font-weight: 800;
+    color: var(--accent-green); text-transform: uppercase; animation: marqueeScroll 20s linear infinite;
+    letter-spacing: 2px; text-shadow: 0 0 8px rgba(0,255,136,0.6);
+  }
+  @keyframes marqueeScroll { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
+
   /* Top Racing Header */
   .top-bar {
-    background: rgba(10, 12, 18, 0.92);
+    background: rgba(10, 12, 18, 0.95);
     backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border-subtle);
     padding: 10px 14px;
     display: flex; justify-content: space-between; align-items: center;
     position: sticky; top: 0; z-index: 50;
   }
-  .brand { font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 14px; letter-spacing: 1.5px; color: #fff; display: flex; align-items: center; gap: 8px; }
-  .brand span { color: var(--accent-cyan); text-shadow: 0 0 10px rgba(0,240,255,0.5); }
+  .brand { font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 13px; letter-spacing: 1px; color: #fff; display: flex; align-items: center; gap: 6px; }
+  .brand span { color: var(--accent-cyan); text-shadow: 0 0 10px rgba(0,240,255,0.6); }
   
+  /* Status Badge with Live Radar Glow */
   .conn-pill {
     display: flex; align-items: center; gap: 6px;
-    padding: 4px 10px; border-radius: 20px; font-size: 10px; font-family: 'Orbitron', sans-serif; font-weight: 800;
+    padding: 5px 12px; border-radius: 20px; font-size: 10px; font-family: 'Orbitron', sans-serif; font-weight: 800;
     background: rgba(255, 30, 86, 0.15); border: 1px solid var(--accent-red); color: var(--accent-red);
-    transition: all 0.3s ease;
+    transition: all 0.4s ease;
   }
-  .conn-pill.online { background: rgba(0, 255, 136, 0.12); border-color: var(--accent-green); color: var(--accent-green); box-shadow: 0 0 12px rgba(0,255,136,0.25); }
-  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+  .conn-pill.online {
+    background: rgba(0, 255, 136, 0.15); border-color: var(--accent-green); color: var(--accent-green);
+    box-shadow: 0 0 15px rgba(0,255,136,0.4);
+  }
+  .conn-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: currentColor;
+    box-shadow: 0 0 10px currentColor; animation: radarPulse 1.5s infinite;
+  }
+  @keyframes radarPulse { 0% { transform: scale(0.95); opacity: 0.8; box-shadow: 0 0 0 0 rgba(255,30,86, 0.7); } 70% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 8px rgba(255,30,86, 0); } 100% { transform: scale(0.95); opacity: 0.8; box-shadow: 0 0 0 0 rgba(255,30,86, 0); } }
+  .conn-pill.online .conn-dot { animation: radarPulseGreen 1.5s infinite; }
+  @keyframes radarPulseGreen { 0% { box-shadow: 0 0 0 0 rgba(0,255,136, 0.7); } 70% { box-shadow: 0 0 0 8px rgba(0,255,136, 0); } 100% { box-shadow: 0 0 0 0 rgba(0,255,136, 0); } }
 
   .container { max-width: 600px; margin: 0 auto; padding: 12px; }
 
+  /* Smooth Fade-in Animation for Tabs */
+  .tab-pane { animation: fadeInScale 0.3s ease-in-out; }
+  @keyframes fadeInScale { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
   /* Fault Alert */
   .fault-banner {
-    background: linear-gradient(90deg, rgba(255,30,86,0.25), rgba(255,30,86,0.1));
+    background: linear-gradient(90deg, rgba(255,30,86,0.3), rgba(255,30,86,0.1));
     border-left: 4px solid var(--accent-red);
-    color: #ff6b8b; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px;
+    color: #ff6b8b; padding: 10px 12px; border-radius: 8px; margin-bottom: 12px;
     font-family: 'Orbitron', sans-serif; font-size: 11px; display: none; font-weight: 700;
     animation: pulseAlert 1.2s infinite;
   }
-  @keyframes pulseAlert { 50% { opacity: 0.6; } }
+  @keyframes pulseAlert { 50% { opacity: 0.5; } }
 
   /* Navigation Pills */
   .nav-tabs {
@@ -310,12 +343,13 @@ const char* htmlUI = R"rawliteral(
   .nav-btn {
     background: transparent; border: none; color: var(--text-dim);
     padding: 9px 4px; font-family: 'Orbitron', sans-serif; font-size: 10px; font-weight: 800;
-    border-radius: 8px; cursor: pointer; transition: all 0.2s ease; letter-spacing: 0.5px;
+    border-radius: 8px; cursor: pointer; transition: all 0.25s ease; letter-spacing: 0.5px;
   }
+  .nav-btn:hover { color: #fff; background: rgba(255,255,255,0.03); }
   .nav-btn.active {
-    background: linear-gradient(135deg, rgba(0,240,255,0.2), rgba(0,255,136,0.15));
-    color: #fff; border: 1px solid rgba(0,240,255,0.4);
-    box-shadow: 0 2px 10px rgba(0,240,255,0.15);
+    background: linear-gradient(135deg, rgba(0,240,255,0.25), rgba(0,255,136,0.2));
+    color: #fff; border: 1px solid rgba(0,240,255,0.5);
+    box-shadow: 0 0 15px rgba(0,240,255,0.2);
   }
 
   /* Glass Cards */
@@ -324,21 +358,22 @@ const char* htmlUI = R"rawliteral(
     backdrop-filter: blur(14px);
     border: 1px solid var(--border-subtle);
     border-radius: 16px; padding: 14px; margin-bottom: 12px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    transition: transform 0.2s ease;
   }
 
   /* ARC TACHOMETER CANVAS */
   .tacho-wrapper { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px 0; }
-  #tachoCanvas { width: 260px; height: 220px; display: block; }
+  #tachoCanvas { width: 260px; height: 220px; display: block; filter: drop-shadow(0 0 10px rgba(0,240,255,0.15)); }
   .shift-indicator {
     position: absolute; top: 8px; right: 10px;
     font-family: 'Orbitron', sans-serif; font-size: 9px; font-weight: 800;
-    padding: 3px 8px; border-radius: 4px; background: #161a24; color: var(--text-dim);
-    border: 1px solid var(--border-subtle); transition: 0.1s;
+    padding: 4px 9px; border-radius: 6px; background: #161a24; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); transition: all 0.1s;
   }
-  .shift-indicator.flash { background: var(--accent-red); color: #fff; box-shadow: 0 0 18px var(--accent-red); border-color: #fff; }
+  .shift-indicator.flash { background: var(--accent-red); color: #fff; box-shadow: 0 0 20px var(--accent-red); border-color: #fff; transform: scale(1.05); }
 
-  /* 2x2 Telemetry Metric Grid */
+  /* Metric Grid */
   .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
   .metric-box {
     background: var(--bg-panel); border: 1px solid var(--border-subtle);
@@ -347,7 +382,7 @@ const char* htmlUI = R"rawliteral(
   .metric-label { font-size: 11px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; display: flex; justify-content: space-between; }
   .metric-val { font-family: 'Orbitron', sans-serif; font-size: 22px; font-weight: 800; margin: 6px 0 8px 0; color: #fff; }
   .metric-bar-bg { width: 100%; height: 6px; background: #1a1f2e; border-radius: 4px; overflow: hidden; }
-  .metric-bar-fill { height: 100%; width: 0%; border-radius: 4px; transition: background-color 0.2s; }
+  .metric-bar-fill { height: 100%; width: 0%; border-radius: 4px; transition: width 0.1s linear, background-color 0.2s; }
 
   /* Chart Box */
   .chart-header { font-family: 'Orbitron', sans-serif; font-size: 10px; color: var(--accent-cyan); letter-spacing: 1px; margin-bottom: 8px; display: flex; justify-content: space-between; }
@@ -360,56 +395,72 @@ const char* htmlUI = R"rawliteral(
     width: 100%; background: #080a0f; color: var(--accent-cyan);
     border: 1px solid rgba(255,255,255,0.12); padding: 10px;
     font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 700;
-    border-radius: 8px; outline: none;
+    border-radius: 8px; outline: none; transition: border-color 0.2s;
   }
-  select:focus, input.cfg:focus { border-color: var(--accent-cyan); }
+  select:focus, input.cfg:focus { border-color: var(--accent-cyan); box-shadow: 0 0 10px rgba(0,240,255,0.3); }
 
   .quick-adj-bar { display: flex; gap: 6px; margin-bottom: 12px; background: var(--bg-panel); padding: 8px; border-radius: 10px; border: 1px solid var(--border-subtle); align-items: center; }
-  .btn-adj { flex: 1; background: #161b26; border: 1px solid rgba(0,240,255,0.3); color: var(--accent-cyan); font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 11px; padding: 8px 0; border-radius: 6px; cursor: pointer; }
-  .btn-adj:active { background: var(--accent-cyan); color: #000; }
+  .btn-adj { flex: 1; background: #161b26; border: 1px solid rgba(0,240,255,0.3); color: var(--accent-cyan); font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 11px; padding: 8px 0; border-radius: 6px; cursor: pointer; transition: 0.2s; }
+  .btn-adj:active, .btn-adj:hover { background: var(--accent-cyan); color: #000; box-shadow: 0 0 10px rgba(0,240,255,0.4); }
 
   /* Tables */
   .table-wrap { overflow-x: auto; max-height: 340px; border-radius: 10px; border: 1px solid var(--border-subtle); background: #090b10; margin-bottom: 12px; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid rgba(255,255,255,0.04); padding: 6px 4px; text-align: center; font-size: 13px; }
+  th, td { border: 1px solid rgba(255,255,255,0.04); padding: 7px 4px; text-align: center; font-size: 13px; }
   th { background: #121622; color: var(--accent-cyan); font-family: 'Orbitron', sans-serif; font-size: 10px; position: sticky; top: 0; z-index: 2; }
   
   input.cell {
     width: 44px; background: rgba(255,255,255,0.03); color: #fff;
     border: 1px solid rgba(255,255,255,0.1); text-align: center; padding: 6px 2px;
     font-family: 'Chakra Petch', sans-serif; font-weight: 700; font-size: 14px; border-radius: 6px; outline: none;
+    transition: transform 0.15s;
   }
-  input.cell:focus { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.4); transform: scale(1.05); }
+  input.cell:focus { border-color: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.5); transform: scale(1.08); background: rgba(0,240,255,0.15); }
   input.dwell-cell { width: 85px; color: var(--accent-cyan); }
 
-  /* Action Buttons */
+  /* Action Buttons with Live Shimmer Effect */
+  .btn-primary, .btn-danger, .btn-secondary {
+    position: relative; overflow: hidden; font-family: 'Orbitron', sans-serif; font-weight: 900;
+    border: none; padding: 14px; font-size: 12px; border-radius: 10px; cursor: pointer;
+    width: 100%; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px;
+    transition: filter 0.2s, transform 0.1s; display: block; text-align: center; text-decoration: none;
+  }
+  .btn-primary:active, .btn-danger:active, .btn-secondary:active { transform: scale(0.98); }
+  
   .btn-primary {
     background: linear-gradient(135deg, #00f0ff, #0077ff); color: #000;
-    font-family: 'Orbitron', sans-serif; font-weight: 900; border: none;
-    padding: 14px; font-size: 12px; border-radius: 10px; cursor: pointer;
-    width: 100%; letter-spacing: 1.5px; text-transform: uppercase;
-    box-shadow: 0 4px 18px rgba(0, 240, 255, 0.35); margin-bottom: 8px;
+    box-shadow: 0 4px 18px rgba(0, 240, 255, 0.35);
   }
   .btn-danger {
     background: linear-gradient(135deg, #ff1e56, #ff5e00); color: #fff;
-    font-family: 'Orbitron', sans-serif; font-weight: 900; border: none;
-    padding: 14px; font-size: 12px; border-radius: 10px; cursor: pointer;
-    width: 100%; letter-spacing: 1.5px; text-transform: uppercase;
-    box-shadow: 0 4px 18px rgba(255, 30, 86, 0.35); margin-bottom: 8px;
+    box-shadow: 0 4px 18px rgba(255, 30, 86, 0.35);
   }
   .btn-secondary {
-    background: #161b26; color: var(--text-primary); font-family: 'Orbitron', sans-serif;
-    font-weight: 700; border: 1px solid var(--border-subtle); padding: 11px;
-    font-size: 11px; border-radius: 10px; cursor: pointer; width: 100%;
-    display: block; text-align: center; text-decoration: none; margin-bottom: 8px;
+    background: #161b26; color: var(--text-primary); border: 1px solid var(--border-subtle); font-weight: 700; font-size: 11px; padding: 11px;
   }
+  
+  /* Shimmer Shine Animation on Buttons */
+  .btn-primary::after, .btn-danger::after {
+    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: linear-gradient(60deg, transparent, rgba(255,255,255,0.25), transparent);
+    transform: rotate(30deg) translateX(-100%); animation: shimmerShine 3s infinite;
+  }
+  @keyframes shimmerShine { 0% { transform: rotate(30deg) translateX(-100%); } 20% { transform: rotate(30deg) translateX(100%); } 100% { transform: rotate(30deg) translateX(100%); } }
+
   .tr-alert { background: rgba(255, 30, 86, 0.18) !important; color: #ff6b8b !important; }
 </style>
-</head><body>
+</head>
+<body>
+
+<div class="marquee-strip">
+  <div class="marquee-inner">
+    <div class="marquee-text">🏁 TEAM PATAS KUDUS SATRIA CLUB &bull; ESP32-S3 IGNITION & TELEMETRY LIVE SYSTEM &bull; HIGH PERFORMANCE RACING TCI &bull; 🏁</div>
+  </div>
+</div>
 
 <div class="top-bar">
   <div class="brand">⚡ PATAS KUDUS <span>S3 TCI</span></div>
-  <div class="conn-pill" id="connPill"><div class="conn-dot"></div><span id="ecuStatusText">OFFLINE</span></div>
+  <div class="conn-pill" id="connPill"><div class="conn-dot"></div><span id="ecuStatusText">MENCARI ECU...</span></div>
 </div>
 
 <div class="container">
@@ -423,7 +474,7 @@ const char* htmlUI = R"rawliteral(
   </div>
 
   <!-- 1. COCKPIT / LIVE MONITOR -->
-  <div id="liveSection">
+  <div id="liveSection" class="tab-pane">
     <div class="card tacho-wrapper">
       <div class="shift-indicator" id="shiftLight">SHIFT LIMIT</div>
       <canvas id="tachoCanvas" width="520" height="440"></canvas>
@@ -431,8 +482,8 @@ const char* htmlUI = R"rawliteral(
 
     <div class="metric-grid">
       <div class="metric-box">
-        <div class="metric-label"><span>IGNITION ADV</span><span>MAX 45°</span></div>
-        <div class="metric-val" id="valDeg" style="color: var(--accent-green);">0.0°</div>
+        <div class="metric-label"><span>IGNITION ADV</span><span>MAX 45&deg;</span></div>
+        <div class="metric-val" id="valDeg" style="color: var(--accent-green);">0.0&deg;</div>
         <div class="metric-bar-bg"><div class="metric-bar-fill" id="barDeg" style="background: var(--accent-green);"></div></div>
       </div>
 
@@ -444,7 +495,7 @@ const char* htmlUI = R"rawliteral(
 
       <div class="metric-box">
         <div class="metric-label"><span>ENGINE TEMP</span><span>NTC</span></div>
-        <div class="metric-val" id="valTemp" style="color: var(--accent-amber);">0.0°C</div>
+        <div class="metric-val" id="valTemp" style="color: var(--accent-amber);">0.0&deg;C</div>
         <div class="metric-bar-bg"><div class="metric-bar-fill" id="barTemp" style="background: var(--accent-amber);"></div></div>
       </div>
 
@@ -458,14 +509,14 @@ const char* htmlUI = R"rawliteral(
     <div class="card">
       <div class="chart-header">
         <span>LIVE TELEMETRY STREAM</span>
-        <span><span style="color:var(--accent-green);">● RPM</span> &nbsp; <span style="color:var(--accent-cyan);">● ADV°</span></span>
+        <span><span style="color:var(--accent-green);">&bull; RPM</span> &nbsp; <span style="color:var(--accent-cyan);">&bull; ADV&deg;</span></span>
       </div>
       <canvas id="realtimeChart" class="graph"></canvas>
     </div>
   </div>
 
   <!-- 2. TUNING SECTION -->
-  <div id="tuningSection" style="display:none;">
+  <div id="tuningSection" class="tab-pane" style="display:none;">
     <div class="card">
       <div class="controls-grid">
         <div>
@@ -487,11 +538,11 @@ const char* htmlUI = R"rawliteral(
 
     <div id="degTools">
       <div class="quick-adj-bar">
-        <span style="font-size:10px; color:var(--text-dim); font-family:'Orbitron'; padding:0 4px;">STEP:</span>
-        <button class="btn-adj" onclick="adjustSelectedCell(-10)">-1.0°</button>
-        <button class="btn-adj" onclick="adjustSelectedCell(-5)">-0.5°</button>
-        <button class="btn-adj" onclick="adjustSelectedCell(5)">+0.5°</button>
-        <button class="btn-adj" onclick="adjustSelectedCell(10)">+1.0°</button>
+        <span style="font-size:10px; color:var(--text-dim); font-family:'Orbitron'; padding:0 4px;">KOREKSI:</span>
+        <button class="btn-adj" onclick="adjustSelectedCell(-10)">-1.0&deg;</button>
+        <button class="btn-adj" onclick="adjustSelectedCell(-5)">-0.5&deg;</button>
+        <button class="btn-adj" onclick="adjustSelectedCell(5)">+0.5&deg;</button>
+        <button class="btn-adj" onclick="adjustSelectedCell(10)">+1.0&deg;</button>
       </div>
     </div>
 
@@ -518,7 +569,7 @@ const char* htmlUI = R"rawliteral(
   </div>
 
   <!-- 3. DATA LOGGER -->
-  <div id="loggerSection" style="display:none;">
+  <div id="loggerSection" class="tab-pane" style="display:none;">
     <div class="card" style="text-align:center;">
       <div id="overflowBadge" style="display:none; color:var(--accent-amber); font-size:11px; margin-bottom:10px; font-family:'Orbitron';">⚠️ BUFFER PENUH — LOG TERLAMA TERTIMPA</div>
       <button class="btn-primary" onclick="fetchLiveDataLog()">🔄 REFRESH DATA LOG</button>
@@ -541,7 +592,6 @@ const char* htmlUI = R"rawliteral(
 const rpmLabels = ["0k","1k","2k","3k","4k","5k","6k","7k","8k","9k","10k","11k","12k","13k","14k"];
 let lastFocusedCell = null;
 
-// --- SMOOTH INTERPOLATION STATE (60 FPS) ---
 let targetData  = { rpm: 0, deg: 0, tps: 0, temp: 0, batt: 12.6, limit: 12500 };
 let displayData = { rpm: 0, deg: 0, tps: 0, temp: 0, batt: 12.6 };
 
@@ -553,9 +603,7 @@ function lerp(start, end, amt) {
   return (1 - amt) * start + amt * end;
 }
 
-// Loop Animasi 60 FPS agar jarum & angka mulus tidak patah-patah
 function renderLoop(timestamp) {
-  // Faktor kehalusan (0.22 = responsif tapi bebas loncatan kasar)
   displayData.rpm  = lerp(displayData.rpm,  targetData.rpm,  0.22);
   displayData.deg  = lerp(displayData.deg,  targetData.deg,  0.25);
   displayData.tps  = lerp(displayData.tps,  targetData.tps,  0.28);
@@ -580,7 +628,6 @@ function renderLoop(timestamp) {
     let battPct = ((displayData.batt - 9.0) / 7.0) * 100;
     document.getElementById('barBatt').style.width = Math.min(Math.max(battPct, 0), 100) + '%';
 
-    // Update grafik rolling setiap 50ms agar mengalir mulus
     if (timestamp - lastGraphPush > 50) {
       rtHistoryRpm.push(displayData.rpm);
       rtHistoryDeg.push(displayData.deg);
@@ -609,7 +656,6 @@ function drawTachometer(rpm, limit) {
   const endAngle   = 2.25 * Math.PI;
   const totalSweep = endAngle - startAngle;
 
-  // Track Latar Belakang
   ctx.beginPath();
   ctx.arc(cx, cy, radius, startAngle, endAngle);
   ctx.lineWidth = 26;
@@ -617,7 +663,6 @@ function drawTachometer(rpm, limit) {
   ctx.lineCap = 'round';
   ctx.stroke();
 
-  // Warna Dinamis (Cyan -> Green -> Red Shift)
   let ratio = Math.min(Math.max(rpm / maxRpm, 0), 1);
   let activeAngle = startAngle + ratio * totalSweep;
   let isShift = rpm >= (limit - 400) && rpm > 2000;
@@ -636,7 +681,6 @@ function drawTachometer(rpm, limit) {
     grad.addColorStop(1, '#ffb800');
   }
 
-  // Arc Aktif dengan efek Glow
   if (rpm > 10) {
     ctx.save();
     ctx.beginPath();
@@ -650,7 +694,6 @@ function drawTachometer(rpm, limit) {
     ctx.restore();
   }
 
-  // Skala Angka RPM (0 - 15)
   ctx.font = '700 18px Orbitron, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -662,7 +705,6 @@ function drawTachometer(rpm, limit) {
     ctx.fillText(i.toString(), tx, ty);
   }
 
-  // Angka Digital Besar di Tengah
   ctx.fillStyle = isShift ? '#ff1e56' : '#ffffff';
   ctx.font = '900 64px Orbitron, sans-serif';
   ctx.fillText(Math.round(rpm).toString(), cx, cy - 8);
@@ -672,7 +714,6 @@ function drawTachometer(rpm, limit) {
   ctx.fillText('RPM', cx, cy + 36);
 }
 
-// Polling cepat 100ms ke ESP32-C3
 function pollLiveStatus() {
   fetch('/getLiveStatus').then(r => r.json()).then(data => {
     let pill = document.getElementById('connPill');
@@ -681,10 +722,10 @@ function pollLiveStatus() {
 
     if (data.ecuOnline) {
       pill.classList.add('online');
-      statusTxt.innerText = "ECU ONLINE";
+      statusTxt.innerText = "ECU TERHUBUNG";
     } else {
       pill.classList.remove('online');
-      statusTxt.innerText = "OFFLINE";
+      statusTxt.innerText = "MENCARI ECU...";
     }
 
     targetData.rpm  = data.rpm || 0;
@@ -700,7 +741,7 @@ function pollLiveStatus() {
       if (data.faultCode & 2) msgs.push("NTC TEMP");
       if (data.faultCode & 4) msgs.push("LOW BATT (<10V)");
       if (data.faultCode & 8) msgs.push("OVERCHARGE (>16V)");
-      faultEl.innerText = "⚠️ FAULT: " + msgs.join(" • ");
+      faultEl.innerText = "⚠️ KENDALA: " + msgs.join(" • ");
       faultEl.style.display = "block";
     } else {
       faultEl.style.display = "none";
@@ -725,7 +766,6 @@ function drawRealtimeChart() {
 
   let stepX = w / (rtHistoryRpm.length - 1);
 
-  // Garis RPM
   ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 4; ctx.beginPath();
   for (let i = 0; i < rtHistoryRpm.length; i++) {
     let x = i * stepX;
@@ -734,7 +774,6 @@ function drawRealtimeChart() {
   }
   ctx.stroke();
 
-  // Garis Advance Degree
   ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 3; ctx.beginPath();
   for (let i = 0; i < rtHistoryDeg.length; i++) {
     let x = i * stepX;
@@ -773,7 +812,6 @@ function switchMainTab(tab) {
   }
 }
 
-// Pewarnaan Heatmap otomatis pada sel Map 3D
 function applyHeatmapColors() {
   for (let r = 0; r < 15; r++) {
     for (let t = 0; t < 5; t++) {
@@ -781,7 +819,7 @@ function applyHeatmapColors() {
       if (!cell) continue;
       let val = parseInt(cell.value) || 0;
       let ratio = Math.min(Math.max((val - 100) / 280, 0), 1);
-      let hue = (1 - ratio) * 200; // 200 (Biru) -> 0 (Merah)
+      let hue = (1 - ratio) * 200;
       cell.style.backgroundColor = `hsla(${hue}, 85%, 45%, 0.25)`;
       cell.style.borderColor     = `hsla(${hue}, 90%, 55%, 0.6)`;
       cell.style.color           = `hsl(${hue}, 100%, 75%)`;
@@ -946,7 +984,8 @@ window.onload = function() {
 };
 window.onresize = function() { drawChart(); };
 </script>
-</body></html>
+</body>
+</html>
 )rawliteral";
 
 void setupWebServer() {
