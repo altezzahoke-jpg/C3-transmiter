@@ -7,9 +7,9 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 
-// --- KONFIGURASI PIN UART ESP32-C3 (TERHUBUNG KE S3) ---
-#define RX_PIN 6
-#define TX_PIN 7
+// --- KONFIGURASI PIN UART ESP32-C3 (SESUAI JALUR PCB) ---
+#define RX_PIN 7  // Terhubung ke Pin 20 (TX_TELEMETRY) di ESP32-S3 ECU
+#define TX_PIN 6  // Terhubung ke Pin 19 (RX_TELEMETRY) di ESP32-S3 ECU
 
 // --- MAC ADDRESS TRANSMITTER & DISPLAY ---
 uint8_t transmitterMac[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
@@ -94,7 +94,7 @@ struct __attribute__((packed)) CommandData {
   uint16_t crc16;
 };
 
-struct __attribute__((packed)) CommandPacketToS3 {
+struct __attribute__((packed)) CommandPacketToECU {
   uint16_t header;                                  // 0x55CC
   uint8_t  cmdType;                                 // 0x01: Mode, 0x02: RAM Map, 0x03: Save NVS
   uint8_t  slotOrMode;   
@@ -138,8 +138,8 @@ void pushToLog(const TelemetryData *pkt) {
   portEXIT_CRITICAL(&logMux);
 }
 
-void sendCommandToS3(uint8_t cmdType, uint8_t slotOrMode) {
-  CommandPacketToS3 cmd;
+void sendCommandToECU(uint8_t cmdType, uint8_t slotOrMode) {
+  CommandPacketToECU cmd;
   cmd.header = 0x55CC;
   cmd.cmdType = cmdType;
   cmd.slotOrMode = slotOrMode;
@@ -154,8 +154,8 @@ void sendCommandToS3(uint8_t cmdType, uint8_t slotOrMode) {
     cmd.rpmLimit = 12500;
   }
   
-  cmd.crc16 = calculateCRC16((uint8_t*)&cmd, sizeof(CommandPacketToS3) - sizeof(uint16_t));
-  Serial1.write((uint8_t*)&cmd, sizeof(CommandPacketToS3));
+  cmd.crc16 = calculateCRC16((uint8_t*)&cmd, sizeof(CommandPacketToECU) - sizeof(uint16_t));
+  Serial1.write((uint8_t*)&cmd, sizeof(CommandPacketToECU));
 }
 
 void parseUART() {
@@ -208,7 +208,7 @@ void OnEspNowRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     CommandData *cmd = (CommandData*)incomingData;
     uint16_t calcCrc = calculateCRC16(incomingData, sizeof(CommandData) - sizeof(uint16_t));
     if (cmd->header == 0xCC55 && cmd->crc16 == calcCrc) {
-      sendCommandToS3(0x01, cmd->requestedMode); 
+      sendCommandToECU(0x01, cmd->requestedMode); 
     }
   }
 }
@@ -239,178 +239,298 @@ void saveMapToNVS() {
 
 const char* htmlUI = R"rawliteral(
 <!DOCTYPE html><html><head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TEAM PATAS KUDUS - ECU TUNER & LOGGER</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>PATAS KUDUS — S3 TCI TELEMETRY PRO</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@600;700&display=swap');
-  body { font-family: 'Rajdhani', sans-serif; background: #0a0a0c; color: #fff; margin: 0; padding: 0; }
-  .marquee-box { background: linear-gradient(90deg, #ff0055, #00ff87, #00e5ff, #ff0055); padding: 3px 0; }
-  .marquee-inner { background: #000; overflow: hidden; white-space: nowrap; padding: 6px 0; }
-  .marquee-text { display: inline-block; font-family: 'Orbitron', sans-serif; font-size: 13px; font-weight: 700; color: #00ff87; text-transform: uppercase; animation: marquee 16s linear infinite; }
-  @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
-  .header { text-align: center; padding: 15px 10px 5px 10px; }
-  .header h1 { font-family: 'Orbitron', sans-serif; font-size: 24px; margin: 0; color: #fff; text-shadow: 0 0 10px #00ff87; }
-  .status-bar { display: flex; justify-content: space-between; align-items: center; background: #111; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; font-family: 'Orbitron'; font-size: 11px; border: 1px solid #222; }
-  .ecu-online { color: #00ff87; font-weight: bold; text-shadow: 0 0 5px #00ff87; }
-  .ecu-offline { color: #ff0055; font-weight: bold; text-shadow: 0 0 5px #ff0055; animation: blink 1s infinite; }
-  @keyframes blink { 50% { opacity: 0.3; } }
-  .fault-banner { background: rgba(255, 0, 85, 0.2); border: 1px solid #ff0055; color: #ff3366; padding: 8px; border-radius: 6px; margin-bottom: 10px; font-family: 'Orbitron', sans-serif; font-size: 11px; text-align: center; display: none; font-weight: bold; }
-  .container { max-width: 650px; margin: 0 auto; padding: 10px; }
-  .card { background: rgba(20, 20, 25, 0.85); border: 1px solid rgba(0, 255, 136, 0.3); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-  .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  label { font-family: 'Orbitron', sans-serif; font-size: 11px; color: #888; display: block; margin-bottom: 5px; }
-  select, input[type=number].cfg { width: 100%; box-sizing: border-box; background: #050508; color: #00ff87; border: 1px solid #222; padding: 8px; font-family: 'Orbitron', sans-serif; font-size: 13px; border-radius: 6px; }
-  .tab-buttons { display: flex; gap: 6px; margin-bottom: 12px; }
-  .tab-btn { flex: 1; background: #111; border: 1px solid #333; color: #aaa; padding: 8px 4px; font-family: 'Orbitron', sans-serif; font-size: 10px; font-weight: 700; border-radius: 6px; cursor: pointer; text-align: center; }
-  .tab-btn.active { background: linear-gradient(180deg, #00ff87, #009951); color: #000; border-color: #00ff87; }
-  .chart-card { background: #050508; border: 1px solid #222; border-radius: 8px; padding: 10px; margin-bottom: 12px; }
-  .chart-title { font-family: 'Orbitron', sans-serif; font-size: 11px; color: #00e5ff; text-align: center; margin-bottom: 6px; }
-  .table-responsive { overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #222; max-height: 350px; }
-  table { width: 100%; border-collapse: collapse; background: #08080c; }
-  th, td { border: 1px solid #1a1a24; padding: 6px 4px; text-align: center; font-size: 12px; }
-  th { background: #12121a; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-size: 10px; position: sticky; top: 0; z-index: 2; }
-  input.cell { width: 42px; background: #000; color: #00ff87; border: 1px solid #222; text-align: center; padding: 5px 1px; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 14px; border-radius: 4px; transition: 0.2s; }
-  input.cell.cell-drop { background: #550011 !important; color: #ff3366 !important; border-color: #ff0055 !important; box-shadow: 0 0 8px #ff0055; }
-  input.cell.cell-active { background: #00ff87 !important; color: #000 !important; font-weight: 900; box-shadow: 0 0 12px #00ff87; }
-  input.dwell-cell { color: #00e5ff; width: 75px; }
-  .quick-adj-bar { display: flex; gap: 10px; margin-bottom: 12px; background: #111; padding: 8px; border-radius: 8px; border: 1px solid #222; align-items: center; justify-content: space-around; }
-  .btn-adj { background: #222; border: 1px solid #00e5ff; color: #00e5ff; font-family: 'Orbitron', sans-serif; font-weight: bold; font-size: 14px; padding: 6px 16px; border-radius: 6px; cursor: pointer; }
-  .btn-adj:active { background: #00e5ff; color: #000; }
-  .tr-alert { background: rgba(255, 0, 85, 0.25) !important; color: #ff3366 !important; font-weight: bold; }
-  .btn-save { background: linear-gradient(135deg, #ff0055, #ff5500); color: #fff; font-family: 'Orbitron', sans-serif; font-weight: 900; border: none; padding: 14px 20px; font-size: 14px; border-radius: 8px; cursor: pointer; width: 100%; letter-spacing: 2px; margin-bottom: 10px; text-transform: uppercase; }
-  .btn-log { background: linear-gradient(135deg, #00e5ff, #0077ff); color: #fff; font-family: 'Orbitron', sans-serif; font-weight: 900; border: none; padding: 12px 20px; font-size: 12px; border-radius: 8px; cursor: pointer; width: 100%; display: block; text-align: center; text-decoration: none; box-sizing: border-box; margin-bottom: 8px; }
-  .btn-clear { background: #333; color: #ccc; font-family: 'Orbitron', sans-serif; font-weight: 700; border: 1px solid #444; padding: 10px 20px; font-size: 11px; border-radius: 8px; cursor: pointer; width: 100%; text-align: center; box-sizing: border-box; }
+  @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,600;0,700;1,700&family=Orbitron:wght@600;800;900&display=swap');
+  :root {
+    --bg-dark: #06070a;
+    --bg-panel: #0e1118;
+    --bg-glass: rgba(18, 22, 32, 0.72);
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --accent-cyan: #00f0ff;
+    --accent-green: #00ff88;
+    --accent-amber: #ffb800;
+    --accent-red: #ff1e56;
+    --text-primary: #f4f6fb;
+    --text-dim: #7b849b;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: 'Chakra Petch', sans-serif;
+    background-color: var(--bg-dark);
+    background-image: 
+      radial-gradient(circle at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 55%),
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 100% 100%, 24px 24px, 24px 24px;
+    color: var(--text-primary);
+    margin: 0; padding: 0; overflow-x: hidden;
+  }
+
+  /* Top Racing Header */
+  .top-bar {
+    background: rgba(10, 12, 18, 0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 10px 14px;
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; z-index: 50;
+  }
+  .brand { font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 14px; letter-spacing: 1.5px; color: #fff; display: flex; align-items: center; gap: 8px; }
+  .brand span { color: var(--accent-cyan); text-shadow: 0 0 10px rgba(0,240,255,0.5); }
+  
+  .conn-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 20px; font-size: 10px; font-family: 'Orbitron', sans-serif; font-weight: 800;
+    background: rgba(255, 30, 86, 0.15); border: 1px solid var(--accent-red); color: var(--accent-red);
+    transition: all 0.3s ease;
+  }
+  .conn-pill.online { background: rgba(0, 255, 136, 0.12); border-color: var(--accent-green); color: var(--accent-green); box-shadow: 0 0 12px rgba(0,255,136,0.25); }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+
+  .container { max-width: 600px; margin: 0 auto; padding: 12px; }
+
+  /* Fault Alert */
+  .fault-banner {
+    background: linear-gradient(90deg, rgba(255,30,86,0.25), rgba(255,30,86,0.1));
+    border-left: 4px solid var(--accent-red);
+    color: #ff6b8b; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px;
+    font-family: 'Orbitron', sans-serif; font-size: 11px; display: none; font-weight: 700;
+    animation: pulseAlert 1.2s infinite;
+  }
+  @keyframes pulseAlert { 50% { opacity: 0.6; } }
+
+  /* Navigation Pills */
+  .nav-tabs {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    background: var(--bg-panel); padding: 5px; border-radius: 12px;
+    border: 1px solid var(--border-subtle); margin-bottom: 14px;
+  }
+  .nav-btn {
+    background: transparent; border: none; color: var(--text-dim);
+    padding: 9px 4px; font-family: 'Orbitron', sans-serif; font-size: 10px; font-weight: 800;
+    border-radius: 8px; cursor: pointer; transition: all 0.2s ease; letter-spacing: 0.5px;
+  }
+  .nav-btn.active {
+    background: linear-gradient(135deg, rgba(0,240,255,0.2), rgba(0,255,136,0.15));
+    color: #fff; border: 1px solid rgba(0,240,255,0.4);
+    box-shadow: 0 2px 10px rgba(0,240,255,0.15);
+  }
+
+  /* Glass Cards */
+  .card {
+    background: var(--bg-glass);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px; padding: 14px; margin-bottom: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+  }
+
+  /* ARC TACHOMETER CANVAS */
+  .tacho-wrapper { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px 0; }
+  #tachoCanvas { width: 260px; height: 220px; display: block; }
+  .shift-indicator {
+    position: absolute; top: 8px; right: 10px;
+    font-family: 'Orbitron', sans-serif; font-size: 9px; font-weight: 800;
+    padding: 3px 8px; border-radius: 4px; background: #161a24; color: var(--text-dim);
+    border: 1px solid var(--border-subtle); transition: 0.1s;
+  }
+  .shift-indicator.flash { background: var(--accent-red); color: #fff; box-shadow: 0 0 18px var(--accent-red); border-color: #fff; }
+
+  /* 2x2 Telemetry Metric Grid */
+  .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .metric-box {
+    background: var(--bg-panel); border: 1px solid var(--border-subtle);
+    border-radius: 12px; padding: 12px; position: relative; overflow: hidden;
+  }
+  .metric-label { font-size: 11px; color: var(--text-dim); font-weight: 700; letter-spacing: 1px; display: flex; justify-content: space-between; }
+  .metric-val { font-family: 'Orbitron', sans-serif; font-size: 22px; font-weight: 800; margin: 6px 0 8px 0; color: #fff; }
+  .metric-bar-bg { width: 100%; height: 6px; background: #1a1f2e; border-radius: 4px; overflow: hidden; }
+  .metric-bar-fill { height: 100%; width: 0%; border-radius: 4px; transition: background-color 0.2s; }
+
+  /* Chart Box */
+  .chart-header { font-family: 'Orbitron', sans-serif; font-size: 10px; color: var(--accent-cyan); letter-spacing: 1px; margin-bottom: 8px; display: flex; justify-content: space-between; }
+  canvas.graph { width: 100%; height: 155px; display: block; }
+
+  /* Tuning Controls */
+  .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  label.cfg-lbl { font-family: 'Orbitron', sans-serif; font-size: 9px; color: var(--text-dim); display: block; margin-bottom: 5px; letter-spacing: 1px; }
+  select, input.cfg {
+    width: 100%; background: #080a0f; color: var(--accent-cyan);
+    border: 1px solid rgba(255,255,255,0.12); padding: 10px;
+    font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 700;
+    border-radius: 8px; outline: none;
+  }
+  select:focus, input.cfg:focus { border-color: var(--accent-cyan); }
+
+  .quick-adj-bar { display: flex; gap: 6px; margin-bottom: 12px; background: var(--bg-panel); padding: 8px; border-radius: 10px; border: 1px solid var(--border-subtle); align-items: center; }
+  .btn-adj { flex: 1; background: #161b26; border: 1px solid rgba(0,240,255,0.3); color: var(--accent-cyan); font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 11px; padding: 8px 0; border-radius: 6px; cursor: pointer; }
+  .btn-adj:active { background: var(--accent-cyan); color: #000; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; max-height: 340px; border-radius: 10px; border: 1px solid var(--border-subtle); background: #090b10; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid rgba(255,255,255,0.04); padding: 6px 4px; text-align: center; font-size: 13px; }
+  th { background: #121622; color: var(--accent-cyan); font-family: 'Orbitron', sans-serif; font-size: 10px; position: sticky; top: 0; z-index: 2; }
+  
+  input.cell {
+    width: 44px; background: rgba(255,255,255,0.03); color: #fff;
+    border: 1px solid rgba(255,255,255,0.1); text-align: center; padding: 6px 2px;
+    font-family: 'Chakra Petch', sans-serif; font-weight: 700; font-size: 14px; border-radius: 6px; outline: none;
+  }
+  input.cell:focus { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.4); transform: scale(1.05); }
+  input.dwell-cell { width: 85px; color: var(--accent-cyan); }
+
+  /* Action Buttons */
+  .btn-primary {
+    background: linear-gradient(135deg, #00f0ff, #0077ff); color: #000;
+    font-family: 'Orbitron', sans-serif; font-weight: 900; border: none;
+    padding: 14px; font-size: 12px; border-radius: 10px; cursor: pointer;
+    width: 100%; letter-spacing: 1.5px; text-transform: uppercase;
+    box-shadow: 0 4px 18px rgba(0, 240, 255, 0.35); margin-bottom: 8px;
+  }
+  .btn-danger {
+    background: linear-gradient(135deg, #ff1e56, #ff5e00); color: #fff;
+    font-family: 'Orbitron', sans-serif; font-weight: 900; border: none;
+    padding: 14px; font-size: 12px; border-radius: 10px; cursor: pointer;
+    width: 100%; letter-spacing: 1.5px; text-transform: uppercase;
+    box-shadow: 0 4px 18px rgba(255, 30, 86, 0.35); margin-bottom: 8px;
+  }
+  .btn-secondary {
+    background: #161b26; color: var(--text-primary); font-family: 'Orbitron', sans-serif;
+    font-weight: 700; border: 1px solid var(--border-subtle); padding: 11px;
+    font-size: 11px; border-radius: 10px; cursor: pointer; width: 100%;
+    display: block; text-align: center; text-decoration: none; margin-bottom: 8px;
+  }
+  .tr-alert { background: rgba(255, 30, 86, 0.18) !important; color: #ff6b8b !important; }
 </style>
 </head><body>
 
-<div class="marquee-box"><div class="marquee-inner"><div class="marquee-text">🏁 TEAM PATAS KUDUS SATRIA CLUB — TCI IGNITION MAP — CUSTOM TUNING SYSTEM — 🏁</div></div></div>
-<div class="header"><h1>TEAM PATAS KUDUS</h1></div>
-<div class="container">
-  
-  <div class="status-bar">
-    <span>KONEKSI ECU (UART): <span id="ecuStatus" class="ecu-offline">MENGECEK...</span></span>
-    <span>LIVE RPM: <span id="liveRpm" style="color:#00ff87;">0</span></span>
-  </div>
+<div class="top-bar">
+  <div class="brand">⚡ PATAS KUDUS <span>S3 TCI</span></div>
+  <div class="conn-pill" id="connPill"><div class="conn-dot"></div><span id="ecuStatusText">OFFLINE</span></div>
+</div>
 
+<div class="container">
   <div id="faultBanner" class="fault-banner"></div>
 
-  <!-- MENU UTAMA / TAB NAVIGASI -->
-  <div class="tab-buttons">
-    <button class="tab-btn active" id="btnTabLive" onclick="switchMainTab('live')">LIVE MONITOR</button>
-    <button class="tab-btn" id="btnTabDegree" onclick="switchMainTab('degree')">MAP 3D</button>
-    <button class="tab-btn" id="btnTabDwell" onclick="switchMainTab('dwell')">DWELL</button>
-    <button class="tab-btn" id="btnTabLogger" onclick="switchMainTab('logger')">LOGGER</button>
+  <div class="nav-tabs">
+    <button class="nav-btn active" id="btnTabLive" onclick="switchMainTab('live')">COCKPIT</button>
+    <button class="nav-btn" id="btnTabDegree" onclick="switchMainTab('degree')">MAP 3D</button>
+    <button class="nav-btn" id="btnTabDwell" onclick="switchMainTab('dwell')">DWELL</button>
+    <button class="nav-btn" id="btnTabLogger" onclick="switchMainTab('logger')">LOGGER</button>
   </div>
 
-  <!-- 1. TAB KHUSUS LIVE MONITORING & RUNNING CHART -->
+  <!-- 1. COCKPIT / LIVE MONITOR -->
   <div id="liveSection">
-    <div class="card" style="border-color: #00e5ff;">
-      <div class="chart-title">LIVE ENGINE TELEMETRY GAUGE</div>
-      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; text-align: center; margin-bottom: 12px;">
-        <div style="background:#050508; padding:8px; border-radius:6px; border:1px solid #222;">
-          <span style="font-size:9px; color:#888;">ADV. DEGREE</span>
-          <div id="liveDeg" style="font-family:'Orbitron'; font-size:18px; color:#00ff87;">0.0°</div>
-        </div>
-        <div style="background:#050508; padding:8px; border-radius:6px; border:1px solid #222;">
-          <span style="font-size:9px; color:#888;">TPS POSITION</span>
-          <div id="liveTps" style="font-family:'Orbitron'; font-size:18px; color:#00e5ff;">0%</div>
-        </div>
-        <div style="background:#050508; padding:8px; border-radius:6px; border:1px solid #222;">
-          <span style="font-size:9px; color:#888;">SUHU NTC</span>
-          <div id="liveTemp" style="font-family:'Orbitron'; font-size:18px; color:#ffea00;">0°C</div>
-        </div>
-        <div style="background:#050508; padding:8px; border-radius:6px; border:1px solid #222;">
-          <span style="font-size:9px; color:#888;">BATT VOLTAGE</span>
-          <div id="liveBatt" style="font-family:'Orbitron'; font-size:18px; color:#ff0055;">0.0V</div>
-        </div>
+    <div class="card tacho-wrapper">
+      <div class="shift-indicator" id="shiftLight">SHIFT LIMIT</div>
+      <canvas id="tachoCanvas" width="520" height="440"></canvas>
+    </div>
+
+    <div class="metric-grid">
+      <div class="metric-box">
+        <div class="metric-label"><span>IGNITION ADV</span><span>MAX 45°</span></div>
+        <div class="metric-val" id="valDeg" style="color: var(--accent-green);">0.0°</div>
+        <div class="metric-bar-bg"><div class="metric-bar-fill" id="barDeg" style="background: var(--accent-green);"></div></div>
+      </div>
+
+      <div class="metric-box">
+        <div class="metric-label"><span>THROTTLE (TPS)</span><span>0-100%</span></div>
+        <div class="metric-val" id="valTps" style="color: var(--accent-cyan);">0%</div>
+        <div class="metric-bar-bg"><div class="metric-bar-fill" id="barTps" style="background: var(--accent-cyan);"></div></div>
+      </div>
+
+      <div class="metric-box">
+        <div class="metric-label"><span>ENGINE TEMP</span><span>NTC</span></div>
+        <div class="metric-val" id="valTemp" style="color: var(--accent-amber);">0.0°C</div>
+        <div class="metric-bar-bg"><div class="metric-bar-fill" id="barTemp" style="background: var(--accent-amber);"></div></div>
+      </div>
+
+      <div class="metric-box">
+        <div class="metric-label"><span>BATTERY</span><span>VOLT</span></div>
+        <div class="metric-val" id="valBatt" style="color: #c77dff;">0.0V</div>
+        <div class="metric-bar-bg"><div class="metric-bar-fill" id="barBatt" style="background: #c77dff;"></div></div>
       </div>
     </div>
 
-    <div class="chart-card">
-      <div class="chart-title">REAL-TIME ROLLING CHART (RPM & ADVANCE)</div>
-      <canvas id="realtimeChart" style="width:100%; height:180px;"></canvas>
-      <div style="display:flex; justify-content:space-around; font-size:10px; font-family:'Orbitron'; margin-top:6px; color:#aaa;">
-        <span style="color:#00ff87;">■ RPM (Skala Max 15k)</span>
-        <span style="color:#00e5ff;">■ ADVANCE DEG (Skala Max 45°)</span>
+    <div class="card">
+      <div class="chart-header">
+        <span>LIVE TELEMETRY STREAM</span>
+        <span><span style="color:var(--accent-green);">● RPM</span> &nbsp; <span style="color:var(--accent-cyan);">● ADV°</span></span>
       </div>
+      <canvas id="realtimeChart" class="graph"></canvas>
     </div>
   </div>
 
-  <!-- 2. TAB TUNING (MAP 3D & DWELL) -->
+  <!-- 2. TUNING SECTION -->
   <div id="tuningSection" style="display:none;">
     <div class="card">
       <div class="controls-grid">
         <div>
-          <label>SLOT MAP CUSTOM</label>
+          <label class="cfg-lbl">PILIH SLOT MAP</label>
           <select id="slotSelect" onchange="loadMap()">
-            <option value="0">MAP CUSTOM 1</option>
-            <option value="1">MAP CUSTOM 2</option>
-            <option value="2">MAP CUSTOM 3</option>
-            <option value="3">MAP CUSTOM 4</option>
-            <option value="4">MAP CUSTOM 5</option>
+            <option value="0">SLOT 1 — DAILY / TOURING</option>
+            <option value="1">SLOT 2 — SPORT / KOPDAR</option>
+            <option value="2">SLOT 3 — RACING 150CC</option>
+            <option value="3">SLOT 4 — DRAG / EXTREME</option>
+            <option value="4">SLOT 5 — CUSTOM USER</option>
           </select>
         </div>
         <div>
-          <label>LIMIT RPM (HARD CUT)</label>
+          <label class="cfg-lbl">RPM LIMITER (HARD CUT)</label>
           <input type="number" id="rpmLimit" class="cfg" value="12500" step="100">
         </div>
       </div>
     </div>
 
-    <div class="quick-adj-bar">
-      <span style="font-size:11px; color:#aaa; font-family:'Orbitron';">KOREKSI CEPAT:</span>
-      <button class="btn-adj" onclick="adjustSelectedCell(-10)">- 1.0&deg;</button>
-      <button class="btn-adj" onclick="adjustSelectedCell(-5)">- 0.5&deg;</button>
-      <button class="btn-adj" onclick="adjustSelectedCell(5)">+ 0.5&deg;</button>
-      <button class="btn-adj" onclick="adjustSelectedCell(10)">+ 1.0&deg;</button>
+    <div id="degTools">
+      <div class="quick-adj-bar">
+        <span style="font-size:10px; color:var(--text-dim); font-family:'Orbitron'; padding:0 4px;">STEP:</span>
+        <button class="btn-adj" onclick="adjustSelectedCell(-10)">-1.0°</button>
+        <button class="btn-adj" onclick="adjustSelectedCell(-5)">-0.5°</button>
+        <button class="btn-adj" onclick="adjustSelectedCell(5)">+0.5°</button>
+        <button class="btn-adj" onclick="adjustSelectedCell(10)">+1.0°</button>
+      </div>
     </div>
 
-    <div class="tab-buttons" style="margin-bottom: 8px;">
-      <button class="tab-btn active" id="subBtnDegree" onclick="switchSubTab('degree')">MAP DERAJAT</button>
-      <button class="tab-btn" id="subBtnDwell" onclick="switchSubTab('dwell')">DWELL PER STEP</button>
+    <div class="card">
+      <div class="chart-header"><span id="chartTitle">KURVA PENGAPIAN (DEGREE VS RPM)</span></div>
+      <canvas id="tuningChart" class="graph"></canvas>
     </div>
 
-    <div class="chart-card">
-      <div class="chart-title" id="chartTitle">GRAFIK KURVA PENGAPIAN (DEGREE VS RPM)</div>
-      <canvas id="tuningChart" style="width:100%; height:160px;"></canvas>
-    </div>
-
-    <div id="tabDegree" class="table-responsive">
+    <div id="tabDegree" class="table-wrap">
       <table>
-        <thead><tr><th>RPM/TPS</th><th>0%</th><th>25%</th><th>50%</th><th>75%</th><th>100%</th></tr></thead>
+        <thead><tr><th>RPM \ TPS</th><th>0%</th><th>25%</th><th>50%</th><th>75%</th><th>100%</th></tr></thead>
         <tbody id="mapBody"></tbody>
       </table>
     </div>
 
-    <div id="tabDwell" class="table-responsive" style="display:none;">
+    <div id="tabDwell" class="table-wrap" style="display:none;">
       <table>
-        <thead><tr><th>STEP RPM</th><th>DWELL TIME (&mu;s)</th><th>KETERANGAN</th></tr></thead>
+        <thead><tr><th>RPM AXIS</th><th>DWELL (&mu;s)</th><th>KARAKTER</th></tr></thead>
         <tbody id="dwellBody"></tbody>
       </table>
     </div>
 
-    <button class="btn-save" onclick="saveAndSend()">SIMPAN & FLASH KE ECU</button>
+    <button class="btn-danger" onclick="saveAndSend()">💾 SIMPAN & FLASH KE ECU S3</button>
   </div>
 
-  <!-- 3. TAB DATA LOGGER -->
+  <!-- 3. DATA LOGGER -->
   <div id="loggerSection" style="display:none;">
-    <div class="card" style="text-align: center;">
-      <label style="color: #00e5ff; margin-bottom: 5px;">RIWAYAT REKAMAN DATA MESIN</label>
-      <div id="overflowBadge" style="display:none; color:#ff9100; font-size:11px; margin-bottom:10px;">⚠️ RAM BUFFER MELUBER (LOG LAMA TERTIMPA)</div>
-      <button class="btn-log" onclick="fetchLiveDataLog()" style="margin-bottom: 10px;">MUAT ULANG TABEL LOG</button>
-      <a href="/downloadCSV" class="btn-log">DOWNLOAD FILE CSV</a>
-      <button class="btn-clear" onclick="clearLogData()">BERSIHKAN LOG</button>
+    <div class="card" style="text-align:center;">
+      <div id="overflowBadge" style="display:none; color:var(--accent-amber); font-size:11px; margin-bottom:10px; font-family:'Orbitron';">⚠️ BUFFER PENUH — LOG TERLAMA TERTIMPA</div>
+      <button class="btn-primary" onclick="fetchLiveDataLog()">🔄 REFRESH DATA LOG</button>
+      <a href="/downloadCSV" class="btn-secondary">📥 DOWNLOAD CSV (EXCEL)</a>
+      <button class="btn-secondary" onclick="clearLogData()" style="color:var(--accent-red); border-color:rgba(255,30,86,0.3);">🗑️ HAPUS MEMORI LOG</button>
     </div>
 
-    <div class="table-responsive">
+    <div class="table-wrap">
       <table>
-        <thead>
-          <tr>
-            <th>Waktu (s)</th><th>RPM</th><th>TPS</th><th>Adv (&deg;)</th><th>Suhu (&deg;C)</th><th>Aki (V)</th>
-          </tr>
-        </thead>
+        <thead><tr><th>WAKTU</th><th>RPM</th><th>TPS</th><th>ADV</th><th>SUHU</th><th>AKI</th></tr></thead>
         <tbody id="logTableBody">
-          <tr><td colspan="6" style="color: #666;">Klik "Muat Ulang Tabel Log" untuk menampilkan data.</td></tr>
+          <tr><td colspan="6" style="color:var(--text-dim); padding:20px;">Klik Refresh Data Log untuk memuat rekaman.</td></tr>
         </tbody>
       </table>
     </div>
@@ -418,277 +538,321 @@ const char* htmlUI = R"rawliteral(
 </div>
 
 <script>
-const rpmLabels = ["1k","2k","3k","4k","5k","6k","7k","8k","9k","10k","11k","12k","13k","14k","15k"];
+const rpmLabels = ["0k","1k","2k","3k","4k","5k","6k","7k","8k","9k","10k","11k","12k","13k","14k"];
 let lastFocusedCell = null;
-let rtHistoryRpm = [];
-let rtHistoryDeg = [];
-const maxHistoryPoints = 60;
 
-function switchMainTab(tab) {
-  // Sembunyikan semua section utama
-  document.getElementById('liveSection').style.display = 'none';
-  document.getElementById('tuningSection').style.display = 'none';
-  document.getElementById('loggerSection').style.display = 'none';
-  
-  // Nonaktifkan semua tombol tab utama
-  document.getElementById('btnTabLive').classList.remove('active');
-  document.getElementById('btnTabDegree').classList.remove('active');
-  document.getElementById('btnTabDwell').classList.remove('active');
-  document.getElementById('btnTabLogger').classList.remove('active');
+// --- SMOOTH INTERPOLATION STATE (60 FPS) ---
+let targetData  = { rpm: 0, deg: 0, tps: 0, temp: 0, batt: 12.6, limit: 12500 };
+let displayData = { rpm: 0, deg: 0, tps: 0, temp: 0, batt: 12.6 };
 
-  if (tab === 'live') {
-    document.getElementById('liveSection').style.display = 'block';
-    document.getElementById('btnTabLive').classList.add('active');
-    drawRealtimeChart();
-  } else if (tab === 'degree') {
-    document.getElementById('tuningSection').style.display = 'block';
-    document.getElementById('btnTabDegree').classList.add('active');
-    switchSubTab('degree');
-  } else if (tab === 'dwell') {
-    document.getElementById('tuningSection').style.display = 'block';
-    document.getElementById('btnTabDwell').classList.add('active');
-    switchSubTab('dwell');
-  } else if (tab === 'logger') {
-    document.getElementById('loggerSection').style.display = 'block';
-    document.getElementById('btnTabLogger').classList.add('active');
-    fetchLiveDataLog(); 
-  }
+let rtHistoryRpm = new Array(80).fill(0);
+let rtHistoryDeg = new Array(80).fill(0);
+let lastGraphPush = 0;
+
+function lerp(start, end, amt) {
+  return (1 - amt) * start + amt * end;
 }
 
-function switchSubTab(sub) {
-  if (sub === 'degree') {
-    document.getElementById('tabDegree').style.display = 'block';
-    document.getElementById('tabDwell').style.display = 'none';
-    document.getElementById('subBtnDegree').classList.add('active');
-    document.getElementById('subBtnDwell').classList.remove('active');
-    document.getElementById('chartTitle').innerText = "GRAFIK KURVA PENGAPIAN (DEGREE VS RPM)";
-  } else {
-    document.getElementById('tabDegree').style.display = 'none';
-    document.getElementById('tabDwell').style.display = 'block';
-    document.getElementById('subBtnDegree').classList.remove('active');
-    document.getElementById('subBtnDwell').classList.add('active');
-    document.getElementById('chartTitle').innerText = "GRAFIK KURVA DWELL TIME (DWELL VS RPM)";
-  }
-  drawChart();
-}
+// Loop Animasi 60 FPS agar jarum & angka mulus tidak patah-patah
+function renderLoop(timestamp) {
+  // Faktor kehalusan (0.22 = responsif tapi bebas loncatan kasar)
+  displayData.rpm  = lerp(displayData.rpm,  targetData.rpm,  0.22);
+  displayData.deg  = lerp(displayData.deg,  targetData.deg,  0.25);
+  displayData.tps  = lerp(displayData.tps,  targetData.tps,  0.28);
+  displayData.temp = lerp(displayData.temp, targetData.temp, 0.15);
+  displayData.batt = lerp(displayData.batt, targetData.batt, 0.15);
 
-function pollLiveStatus() {
-  fetch('/getLiveStatus').then(r => r.json()).then(data => {
-    let statusEl = document.getElementById('ecuStatus');
-    let rpmEl = document.getElementById('liveRpm');
-    let faultEl = document.getElementById('faultBanner');
-    
-    if (data.ecuOnline) {
-      statusEl.innerText = "ONLINE (S3 CONNECTED)";
-      statusEl.className = "ecu-online";
-    } else {
-      statusEl.innerText = "OFFLINE / DISCONNECTED";
-      statusEl.className = "ecu-offline";
-    }
-    
-    rpmEl.innerText = data.rpm;
+  if (Math.abs(targetData.rpm - displayData.rpm) < 1) displayData.rpm = targetData.rpm;
 
-    // Update Widget Live Engine (Tab Live)
-    document.getElementById('liveDeg').innerText = (data.deg / 10).toFixed(1) + '°';
-    document.getElementById('liveTps').innerText = data.tps + '%';
-    document.getElementById('liveTemp').innerText = (data.temp / 10).toFixed(1) + '°C';
-    document.getElementById('liveBatt').innerText = (data.batt / 10).toFixed(1) + 'V';
+  if (document.getElementById('liveSection').style.display !== 'none') {
+    drawTachometer(displayData.rpm, targetData.limit);
 
-    // Push data ke array history untuk grafik berjalan
-    rtHistoryRpm.push(data.rpm);
-    rtHistoryDeg.push(data.deg / 10);
-    if (rtHistoryRpm.length > maxHistoryPoints) {
+    document.getElementById('valDeg').innerText  = displayData.deg.toFixed(1) + '°';
+    document.getElementById('barDeg').style.width = Math.min(Math.max((displayData.deg / 45.0) * 100, 0), 100) + '%';
+
+    document.getElementById('valTps').innerText  = Math.round(displayData.tps) + '%';
+    document.getElementById('barTps').style.width = Math.min(Math.max(displayData.tps, 0), 100) + '%';
+
+    document.getElementById('valTemp').innerText = displayData.temp.toFixed(1) + '°C';
+    document.getElementById('barTemp').style.width = Math.min(Math.max((displayData.temp / 120.0) * 100, 0), 100) + '%';
+
+    document.getElementById('valBatt').innerText = displayData.batt.toFixed(1) + 'V';
+    let battPct = ((displayData.batt - 9.0) / 7.0) * 100;
+    document.getElementById('barBatt').style.width = Math.min(Math.max(battPct, 0), 100) + '%';
+
+    // Update grafik rolling setiap 50ms agar mengalir mulus
+    if (timestamp - lastGraphPush > 50) {
+      rtHistoryRpm.push(displayData.rpm);
+      rtHistoryDeg.push(displayData.deg);
       rtHistoryRpm.shift();
       rtHistoryDeg.shift();
-    }
-    
-    // Refresh chart live jika sedang dibuka di tab live
-    if (document.getElementById('liveSection').style.display !== 'none') {
       drawRealtimeChart();
+      lastGraphPush = timestamp;
     }
+  }
+  requestAnimationFrame(renderLoop);
+}
+requestAnimationFrame(renderLoop);
+
+function drawTachometer(rpm, limit) {
+  const canvas = document.getElementById('tachoCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const cx = w / 2, cy = h / 2 + 25;
+  const radius = 175;
+  const maxRpm = 15000;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const startAngle = 0.75 * Math.PI;
+  const endAngle   = 2.25 * Math.PI;
+  const totalSweep = endAngle - startAngle;
+
+  // Track Latar Belakang
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, startAngle, endAngle);
+  ctx.lineWidth = 26;
+  ctx.strokeStyle = '#151924';
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Warna Dinamis (Cyan -> Green -> Red Shift)
+  let ratio = Math.min(Math.max(rpm / maxRpm, 0), 1);
+  let activeAngle = startAngle + ratio * totalSweep;
+  let isShift = rpm >= (limit - 400) && rpm > 2000;
+
+  let shiftEl = document.getElementById('shiftLight');
+  if (isShift) shiftEl.classList.add('flash');
+  else shiftEl.classList.remove('flash');
+
+  let grad = ctx.createLinearGradient(cx - radius, cy, cx + radius, cy);
+  if (isShift) {
+    grad.addColorStop(0, '#ff1e56');
+    grad.addColorStop(1, '#ff7b00');
+  } else {
+    grad.addColorStop(0, '#00f0ff');
+    grad.addColorStop(0.6, '#00ff88');
+    grad.addColorStop(1, '#ffb800');
+  }
+
+  // Arc Aktif dengan efek Glow
+  if (rpm > 10) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, startAngle, activeAngle);
+    ctx.lineWidth = 26;
+    ctx.strokeStyle = grad;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = isShift ? '#ff1e56' : '#00f0ff';
+    ctx.shadowBlur = 22;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Skala Angka RPM (0 - 15)
+  ctx.font = '700 18px Orbitron, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i <= 15; i++) {
+    let a = startAngle + (i / 15) * totalSweep;
+    let tx = cx + Math.cos(a) * (radius - 38);
+    let ty = cy + Math.sin(a) * (radius - 38);
+    ctx.fillStyle = (i >= 12) ? '#ff1e56' : '#6c768f';
+    ctx.fillText(i.toString(), tx, ty);
+  }
+
+  // Angka Digital Besar di Tengah
+  ctx.fillStyle = isShift ? '#ff1e56' : '#ffffff';
+  ctx.font = '900 64px Orbitron, sans-serif';
+  ctx.fillText(Math.round(rpm).toString(), cx, cy - 8);
+
+  ctx.fillStyle = '#00f0ff';
+  ctx.font = '700 18px Orbitron, sans-serif';
+  ctx.fillText('RPM', cx, cy + 36);
+}
+
+// Polling cepat 100ms ke ESP32-C3
+function pollLiveStatus() {
+  fetch('/getLiveStatus').then(r => r.json()).then(data => {
+    let pill = document.getElementById('connPill');
+    let statusTxt = document.getElementById('ecuStatusText');
+    let faultEl = document.getElementById('faultBanner');
+
+    if (data.ecuOnline) {
+      pill.classList.add('online');
+      statusTxt.innerText = "ECU ONLINE";
+    } else {
+      pill.classList.remove('online');
+      statusTxt.innerText = "OFFLINE";
+    }
+
+    targetData.rpm  = data.rpm || 0;
+    targetData.deg  = (data.deg || 0) / 10.0;
+    targetData.tps  = data.tps || 0;
+    targetData.temp = (data.temp || 0) / 10.0;
+    targetData.batt = (data.batt || 0) / 10.0;
+    targetData.limit = parseInt(document.getElementById('rpmLimit').value) || 12500;
 
     if (data.faultCode && data.faultCode !== 0) {
       let msgs = [];
-      if (data.faultCode & 1) msgs.push("SENSOR TPS ERROR");
-      if (data.faultCode & 2) msgs.push("SENSOR SUHU NTC ERROR");
-      if (data.faultCode & 4) msgs.push("AKI LOW (<10V)");
-      if (data.faultCode & 8) msgs.push("OVERCHARGE / KIPROK (>16V)");
-      faultEl.innerText = "⚠️ FAULT DETECTED (LIMP HOME): " + msgs.join(" | ");
+      if (data.faultCode & 1) msgs.push("TPS SENSOR");
+      if (data.faultCode & 2) msgs.push("NTC TEMP");
+      if (data.faultCode & 4) msgs.push("LOW BATT (<10V)");
+      if (data.faultCode & 8) msgs.push("OVERCHARGE (>16V)");
+      faultEl.innerText = "⚠️ FAULT: " + msgs.join(" • ");
       faultEl.style.display = "block";
     } else {
       faultEl.style.display = "none";
     }
-  }).catch(e => {});
+  }).catch(() => {});
 }
-setInterval(pollLiveStatus, 500);
+setInterval(pollLiveStatus, 100);
 
 function drawRealtimeChart() {
   const canvas = document.getElementById('realtimeChart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  canvas.width = canvas.clientWidth;
-  canvas.height = canvas.clientHeight;
-  const w = canvas.width; const h = canvas.height;
-  
+  canvas.width = canvas.clientWidth * 2;
+  canvas.height = canvas.clientHeight * 2;
+  const w = canvas.width, h = canvas.height;
+
   ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = '#1a1a24'; ctx.lineWidth = 1;
-  
-  for(let y=0; y<h; y+=h/4) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 2;
+  for (let y = 0; y <= h; y += h / 4) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
   }
 
-  if (rtHistoryRpm.length < 2) return;
+  let stepX = w / (rtHistoryRpm.length - 1);
 
-  let stepX = w / (maxHistoryPoints - 1);
-
-  // Garis RPM (Hijau)
-  ctx.strokeStyle = '#00ff87'; ctx.lineWidth = 2; ctx.beginPath();
-  for(let i = 0; i < rtHistoryRpm.length; i++) {
+  // Garis RPM
+  ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 4; ctx.beginPath();
+  for (let i = 0; i < rtHistoryRpm.length; i++) {
     let x = i * stepX;
     let y = h - ((rtHistoryRpm[i] / 15000) * h);
-    if (y < 0) y = 0; if (y > h) y = h;
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
   ctx.stroke();
 
-  // Garis Advance Degree (Cyan)
-  ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 1.5; ctx.beginPath();
-  for(let i = 0; i < rtHistoryDeg.length; i++) {
+  // Garis Advance Degree
+  ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 3; ctx.beginPath();
+  for (let i = 0; i < rtHistoryDeg.length; i++) {
     let x = i * stepX;
     let y = h - ((rtHistoryDeg[i] / 45.0) * h);
-    if (y < 0) y = 0; if (y > h) y = h;
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
   ctx.stroke();
 }
 
-function fetchLiveDataLog() {
-  fetch('/getLogData').then(r => r.json()).then(data => {
-    let tbody = document.getElementById('logTableBody');
-    tbody.innerHTML = '';
-    
-    if (data.overflow) {
-      document.getElementById('overflowBadge').style.display = 'block';
-    } else {
-      document.getElementById('overflowBadge').style.display = 'none';
-    }
+function switchMainTab(tab) {
+  document.getElementById('liveSection').style.display    = (tab === 'live') ? 'block' : 'none';
+  document.getElementById('tuningSection').style.display  = (tab === 'degree' || tab === 'dwell') ? 'block' : 'none';
+  document.getElementById('loggerSection').style.display  = (tab === 'logger') ? 'block' : 'none';
 
-    if (!data.logs || data.logs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="color: #666;">Belum ada data log (mesin belum berputar > 400 RPM).</td></tr>';
-      return;
-    }
-    let revLogs = data.logs.reverse();
-    revLogs.forEach(entry => {
-      let tr = document.createElement('tr');
-      let isTempAlert = (entry.temp / 10.0) >= 90.0;
-      let isBattAlert = (entry.batt / 10.0) <= 11.5;
-      
-      if (isTempAlert || isBattAlert) tr.classList.add('tr-alert');
-      
-      tr.innerHTML = `
-        <td style="color: #aaa;">${(entry.t / 1000).toFixed(1)}s</td>
-        <td style="color: #00ff87; font-weight: bold;">${entry.r}</td>
-        <td>${entry.p}%</td>
-        <td style="color: #00e5ff;">${(entry.a / 10).toFixed(1)}&deg;</td>
-        <td style="${isTempAlert ? 'color:#ff0055; font-weight:900;' : ''}">${(entry.temp / 10).toFixed(1)}&deg;C</td>
-        <td style="${isBattAlert ? 'color:#ff0055; font-weight:900;' : ''}">${(entry.batt / 10).toFixed(1)}V</td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }).catch(err => alert('Gagal mengambil data log.'));
+  ['btnTabLive', 'btnTabDegree', 'btnTabDwell', 'btnTabLogger'].forEach(id => document.getElementById(id).classList.remove('active'));
+
+  if (tab === 'live') {
+    document.getElementById('btnTabLive').classList.add('active');
+  } else if (tab === 'degree') {
+    document.getElementById('btnTabDegree').classList.add('active');
+    document.getElementById('tabDegree').style.display = 'block';
+    document.getElementById('tabDwell').style.display  = 'none';
+    document.getElementById('degTools').style.display  = 'block';
+    document.getElementById('chartTitle').innerText    = "KURVA PENGAPIAN (DEGREE VS RPM)";
+    drawChart();
+  } else if (tab === 'dwell') {
+    document.getElementById('btnTabDwell').classList.add('active');
+    document.getElementById('tabDegree').style.display = 'none';
+    document.getElementById('tabDwell').style.display  = 'block';
+    document.getElementById('degTools').style.display  = 'none';
+    document.getElementById('chartTitle').innerText    = "KURVA DWELL TIME (MICROSECONDS)";
+    drawChart();
+  } else if (tab === 'logger') {
+    document.getElementById('btnTabLogger').classList.add('active');
+    fetchLiveDataLog();
+  }
 }
 
-function clearLogData() {
-  if(confirm('Hapus seluruh riwayat log di memori?')) {
-    fetch('/clearLog').then(r => r.text()).then(msg => {
-      fetchLiveDataLog();
-      alert('Log berhasil dibersihkan.');
-    });
+// Pewarnaan Heatmap otomatis pada sel Map 3D
+function applyHeatmapColors() {
+  for (let r = 0; r < 15; r++) {
+    for (let t = 0; t < 5; t++) {
+      let cell = document.getElementById(`c_${r}_${t}`);
+      if (!cell) continue;
+      let val = parseInt(cell.value) || 0;
+      let ratio = Math.min(Math.max((val - 100) / 280, 0), 1);
+      let hue = (1 - ratio) * 200; // 200 (Biru) -> 0 (Merah)
+      cell.style.backgroundColor = `hsla(${hue}, 85%, 45%, 0.25)`;
+      cell.style.borderColor     = `hsla(${hue}, 90%, 55%, 0.6)`;
+      cell.style.color           = `hsl(${hue}, 100%, 75%)`;
+    }
   }
 }
 
 function adjustSelectedCell(delta) {
-  if (lastFocusedCell) {
-    let currentVal = parseInt(lastFocusedCell.value) || 0;
-    let newVal = currentVal + delta;
-    if (newVal < 0) newVal = 0;
-    if (newVal > 450) newVal = 450;
-    lastFocusedCell.value = newVal;
-    drawChart();
-    checkPowerDropPatterns();
-  } else {
-    alert('Pilih/Klik salah satu kotak sel pada tabel Map 3D terlebih dahulu!');
-  }
-}
-
-function checkPowerDropPatterns() {
-  for(let r = 0; r < 15; r++) {
-    for(let t = 0; t < 5; t++) {
-      let cell = document.getElementById(`c_${r}_${t}`);
-      if (cell) {
-        let val = parseInt(cell.value) || 0;
-        if (r >= 7 && val < 150) cell.classList.add('cell-drop');
-        else cell.classList.remove('cell-drop');
-      }
-    }
-  }
+  if (!lastFocusedCell) { alert('Ketuk salah satu kotak angka pada tabel Map 3D terlebih dahulu.'); return; }
+  let val = (parseInt(lastFocusedCell.value) || 0) + delta;
+  lastFocusedCell.value = Math.min(Math.max(val, 0), 450);
+  drawChart();
+  applyHeatmapColors();
 }
 
 function drawChart() {
   const canvas = document.getElementById('tuningChart');
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  canvas.width = canvas.clientWidth;
-  canvas.height = canvas.clientHeight;
-  const w = canvas.width; const h = canvas.height;
-  const padL = 30, padR = 15, padT = 15, padB = 25;
-  const plotW = w - padL - padR; const plotH = h - padT - padB;
+  canvas.width = canvas.clientWidth * 2;
+  canvas.height = canvas.clientHeight * 2;
+  const w = canvas.width, h = canvas.height;
+  const padL = 55, padR = 25, padT = 25, padB = 45;
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+
   ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = '#1a1a24'; ctx.lineWidth = 1; ctx.fillStyle = '#666'; ctx.font = '9px Orbitron, sans-serif';
-  
-  let currentTabIsDegree = document.getElementById('tabDegree').style.display !== 'none';
-  if (currentTabIsDegree) {
-    let minY = 0, maxY = 450; 
-    for(let v = 0; v <= 400; v += 100) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 2;
+  ctx.fillStyle = '#7b849b'; ctx.font = '700 18px Orbitron, sans-serif';
+
+  let isDeg = document.getElementById('tabDegree').style.display !== 'none';
+  if (isDeg) {
+    let minY = 0, maxY = 450;
+    for (let v = 0; v <= 400; v += 100) {
       let y = padT + plotH - ((v - minY) / (maxY - minY)) * plotH;
       ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
-      ctx.fillText((v/10) + '°', 5, y + 3);
+      ctx.fillText((v / 10) + '°', 8, y + 6);
     }
-    for(let r = 0; r < 15; r += 2) {
+    for (let r = 0; r < 15; r += 2) {
       let x = padL + (r / 14) * plotW;
-      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
-      ctx.fillText(rpmLabels[r], x - 8, h - 5);
+      ctx.fillText(rpmLabels[r], x - 14, h - 12);
     }
-    const colors = ['#00e5ff', '#00ff87', '#ffea00', '#ff9100', '#ff0055'];
-    for(let t = 0; t < 5; t++) {
-      ctx.strokeStyle = colors[t]; ctx.lineWidth = 2; ctx.beginPath();
-      for(let r = 0; r < 15; r++) {
+    const colors = ['#00f0ff', '#00ff88', '#ffb800', '#ff7b00', '#ff1e56'];
+    for (let t = 0; t < 5; t++) {
+      ctx.strokeStyle = colors[t]; ctx.lineWidth = 4; ctx.beginPath();
+      for (let r = 0; r < 15; r++) {
         let el = document.getElementById(`c_${r}_${t}`);
         let val = el ? (parseInt(el.value) || 0) : 100;
         let x = padL + (r / 14) * plotW;
         let y = padT + plotH - ((val - minY) / (maxY - minY)) * plotH;
-        if(r === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        if (r === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
       ctx.stroke();
     }
   } else {
     let minY = 1000, maxY = 5000;
-    for(let v = 1000; v <= 5000; v += 1000) {
+    for (let v = 1000; v <= 5000; v += 1000) {
       let y = padT + plotH - ((v - minY) / (maxY - minY)) * plotH;
       ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
-      ctx.fillText((v/1000) + 'k', 5, y + 3);
+      ctx.fillText((v / 1000) + 'k', 8, y + 6);
     }
-    for(let r = 0; r < 15; r += 2) {
+    for (let r = 0; r < 15; r += 2) {
       let x = padL + (r / 14) * plotW;
-      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
-      ctx.fillText(rpmLabels[r], x - 8, h - 5);
+      ctx.fillText(rpmLabels[r], x - 14, h - 12);
     }
-    ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2.5; ctx.beginPath();
-    for(let r = 0; r < 15; r++) {
+    ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 5; ctx.beginPath();
+    for (let r = 0; r < 15; r++) {
       let el = document.getElementById(`d_${r}`);
       let val = el ? (parseInt(el.value) || 3200) : 3200;
       let x = padL + (r / 14) * plotW;
       let y = padT + plotH - ((val - minY) / (maxY - minY)) * plotH;
-      if(r === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      if (r === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
   }
@@ -699,58 +863,88 @@ function loadMap() {
   fetch('/getMap?slot=' + slot).then(r => r.json()).then(data => {
     document.getElementById('rpmLimit').value = data.rpmLimit;
     let tbodyMap = document.getElementById('mapBody'); tbodyMap.innerHTML = '';
-    for(let r = 0; r < 15; r++) {
+    for (let r = 0; r < 15; r++) {
       let tr = document.createElement('tr');
       let tdRpm = document.createElement('td');
-      tdRpm.style.color = '#00e5ff'; tdRpm.innerText = rpmLabels[r]; tr.appendChild(tdRpm);
-      for(let t = 0; t < 5; t++) {
+      tdRpm.style.color = '#00f0ff'; tdRpm.style.fontWeight = '700'; tdRpm.innerText = rpmLabels[r];
+      tr.appendChild(tdRpm);
+      for (let t = 0; t < 5; t++) {
         let td = document.createElement('td');
         let val = (data.map && data.map[r]) ? data.map[r][t] : 100;
-        td.innerHTML = `<input type="number" class="cell" id="c_${r}_${t}" value="${val}" onfocus="lastFocusedCell=this" oninput="drawChart(); checkPowerDropPatterns();">`;
+        td.innerHTML = `<input type="number" class="cell" id="c_${r}_${t}" value="${val}" onfocus="lastFocusedCell=this" oninput="drawChart(); applyHeatmapColors();">`;
         tr.appendChild(td);
       }
       tbodyMap.appendChild(tr);
     }
+
     let tbodyDwell = document.getElementById('dwellBody'); tbodyDwell.innerHTML = '';
-    for(let r = 0; r < 15; r++) {
+    for (let r = 0; r < 15; r++) {
       let tr = document.createElement('tr');
-      let tdRpm = document.createElement('td'); tdRpm.style.color = '#00e5ff'; tdRpm.innerText = rpmLabels[r] + ' RPM';
+      let tdRpm = document.createElement('td'); tdRpm.style.color = '#00f0ff'; tdRpm.innerText = rpmLabels[r] + ' RPM';
       let tdDwell = document.createElement('td');
       let dVal = (data.dwell && data.dwell[r]) ? data.dwell[r] : 3200;
       tdDwell.innerHTML = `<input type="number" class="cell dwell-cell" id="d_${r}" value="${dVal}" step="50" oninput="drawChart()">`;
-      let tdDesc = document.createElement('td'); tdDesc.style.color = '#888'; tdDesc.style.fontSize = '11px';
-      tdDesc.innerText = r < 4 ? 'Low RPM' : (r < 10 ? 'Mid RPM' : 'High RPM');
-      tr.appendChild(tdRpm); tr.appendChild(tdDwell); tr.appendChild(tdDesc); tbodyDwell.appendChild(tr);
+      let tdDesc = document.createElement('td'); tdDesc.style.color = '#7b849b'; tdDesc.style.fontSize = '11px';
+      tdDesc.innerText = r < 4 ? 'Low Charge' : (r < 10 ? 'Mid Optimal' : 'High Speed');
+      tr.appendChild(tdRpm); tr.appendChild(tdDwell); tr.appendChild(tdDesc);
+      tbodyDwell.appendChild(tr);
     }
     drawChart();
-    checkPowerDropPatterns();
+    applyHeatmapColors();
   });
 }
 
 function saveAndSend() {
   let slot = parseInt(document.getElementById('slotSelect').value);
   let payload = { slot: slot, rpmLimit: parseInt(document.getElementById('rpmLimit').value) || 12500, map: [], dwell: [] };
-  for(let r = 0; r < 15; r++) {
+  for (let r = 0; r < 15; r++) {
     let row = [];
-    for(let t = 0; t < 5; t++) { row.push(parseInt(document.getElementById(`c_${r}_${t}`).value) || 100); }
+    for (let t = 0; t < 5; t++) row.push(parseInt(document.getElementById(`c_${r}_${t}`).value) || 100);
     payload.map.push(row);
   }
-  for(let r = 0; r < 15; r++) { payload.dwell.push(parseInt(document.getElementById(`d_${r}`).value) || 3200); }
-  
+  for (let r = 0; r < 15; r++) payload.dwell.push(parseInt(document.getElementById(`d_${r}`).value) || 3200);
+
   fetch('/saveTuning', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) })
-  .then(r => r.text()).then(msg => alert('Map Custom ' + (slot+1) + ' Berhasil Disimpan & Dikirim ke ECU!'));
+  .then(() => alert('✅ Slot ' + (slot + 1) + ' Berhasil Tersimpan & Aktif di ECU S3!'));
+}
+
+function fetchLiveDataLog() {
+  fetch('/getLogData').then(r => r.json()).then(data => {
+    let tbody = document.getElementById('logTableBody');
+    tbody.innerHTML = '';
+    document.getElementById('overflowBadge').style.display = data.overflow ? 'block' : 'none';
+    if (!data.logs || data.logs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim); padding:16px;">Belum ada data terekam.</td></tr>';
+      return;
+    }
+    data.logs.reverse().forEach(e => {
+      let tr = document.createElement('tr');
+      if ((e.temp / 10.0) >= 95.0 || (e.batt / 10.0) <= 11.2) tr.classList.add('tr-alert');
+      tr.innerHTML = `
+        <td style="color:var(--text-dim);">${(e.t / 1000).toFixed(1)}s</td>
+        <td style="color:var(--accent-green); font-weight:700;">${e.r}</td>
+        <td>${e.p}%</td>
+        <td style="color:var(--accent-cyan);">${(e.a / 10).toFixed(1)}°</td>
+        <td>${(e.temp / 10).toFixed(1)}°</td>
+        <td>${(e.batt / 10).toFixed(1)}V</td>`;
+      tbody.appendChild(tr);
+    });
+  }).catch(() => {});
+}
+
+function clearLogData() {
+  if (confirm('Hapus seluruh riwayat log di RAM?')) {
+    fetch('/clearLog').then(() => fetchLiveDataLog());
+  }
 }
 
 window.onload = function() {
   fetch('/getLiveStatus').then(r => r.json()).then(d => {
     document.getElementById('slotSelect').value = d.activeSlot;
     loadMap();
-  }).catch(e => loadMap());
+  }).catch(() => loadMap());
 };
-window.onresize = function() {
-  drawRealtimeChart();
-  drawChart();
-};
+window.onresize = function() { drawChart(); };
 </script>
 </body></html>
 )rawliteral";
@@ -875,7 +1069,7 @@ void setupWebServer() {
       d++;
     }
     saveMapToNVS();
-    sendCommandToS3(0x03, slot); 
+    sendCommandToECU(0x03, slot); 
     request->send(200, "text/plain", "Saved & Sent");
     lastActivityTime = millis();
   });
@@ -914,7 +1108,7 @@ void loop() {
   
   if (isEcuConnected && !initialSyncDone) {
     if (millis() - lastSyncRetryTime > 500) {
-      sendCommandToS3(0x02, currentActiveSlot);
+      sendCommandToECU(0x02, currentActiveSlot);
       lastSyncRetryTime = millis();
       syncRetryCount++;
       
